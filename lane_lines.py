@@ -29,13 +29,13 @@ class LaneLines(object):
         # XXX: These were tuned on the test_image and assumer all images 
         # XXX: are of the same viewing angle and dimensions (front-facing, 1280x720)
         x = 1280
-        y = 720
-        off = 100
+        y = 717
+        off = 50
 
-        br = [1112, 650]
-        bl = [267, 662]
-        tr = [537, 469]
-        tl = [769, 457]
+        br = [1044, 669]
+        bl = [235, 675]
+        tr = [730, 455]
+        tl = [555, 460]
 
         dbr = [x - off, y - off]
         dbl = [0 + off, y - off]
@@ -140,7 +140,8 @@ class LaneLines(object):
 
     def perspective_transform(self, img):
         '''Transform the perspective'''
-        return cv2.warpPerspective(img, self.trans_M, img.shape[:-1], 
+        # XXX: For some reason img shape coordinates need to be flipped here
+        return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1],
             flags=cv2.INTER_LINEAR)    
 
     def correct_distortion(self, img):
@@ -271,13 +272,11 @@ class LaneLines(object):
 
         return mask
 
+    def find_lanes(self, binary_warped, debug=False):
+        raise NotImplemented
 
-def lane_curvature():
-    raise NotImplemented
-
-
-def fill_lanes():
-    raise NotImplemented
+    def fill_lanes(self, img):
+        raise NotImplemented
 
 # Define a class to receive the characteristics of each line detection
 class Line():
@@ -307,20 +306,21 @@ if __name__ == '__main__':
     lane_lines = LaneLines()
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))
     img_blank = np.zeros_like(img)
-
     # Test calibration and update calibration data file
     lane_lines.calibrate(debug = True, read_cal = False)
 
     img_blank = np.zeros_like(img)
-
     # Test Image Transformation
     transform_img = cv2.imread(os.path.join("test_img", "transform_test.jpg"))
-    undistort = lane_lines.correct_distortion(transform_img)
-    transform = lane_lines.perspective_transform(img)
-    write_name = os.path.join("results", "test-transform.jpg")
-    # plt.imshow(transform); plt.show()
-    cv2.imwrite(write_name, transform)
     
+    undistort = lane_lines.correct_distortion(transform_img)
+    write_name = os.path.join("results", "test-undistort.jpg")
+    cv2.imwrite(write_name, undistort)
+
+    transform = lane_lines.perspective_transform(undistort)
+    write_name = os.path.join("results", "test-transform.jpg")
+    cv2.imwrite(write_name, transform)
+
     # Test color thresh
     color_mask = lane_lines.color_thresh(img)
     cv2.imwrite(os.path.join("results", "color_edge.jpg"), 255*color_mask)
@@ -349,4 +349,13 @@ if __name__ == '__main__':
     # Test edge detection pipelien
     edge_img = lane_lines.edge_detection(img)
     cv2.imwrite(os.path.join("results", "edge.jpg"), 255*edge_img)
+    
+    #lane_lines.lane_curvature(img, True)
 
+    # TODO: Get find_lanes using the line class
+    # TODO: Get find_lanes working on the update case
+    # TODO: Get lane_curvature working
+    # TODO: Get fill_lanes Working
+    # TODO: Get pipeline working
+    # TODO: Test with a video
+    # TODO: Writeup

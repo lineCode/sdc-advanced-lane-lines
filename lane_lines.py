@@ -5,6 +5,7 @@ import glob
 import pickle
 
 import matplotlib.pyplot as plt
+from moviepy.editor import VideoFileClip
 
 
 class LaneLines(object):
@@ -133,15 +134,25 @@ class LaneLines(object):
         '''Use the pre-calculated points to save the transformation matrix'''
         self.trans_M = cv2.getPerspectiveTransform(self.trans_src, self.trans_dst)
 
+    def process_video(self, input_vid, output_vid):
+        '''Run an video through the pipeline'''
+        print("Running %s through pipeline and outputting to %s" %(input_vid, output_vid))
+        clip = VideoFileClip(input_vid)
+        output = clip.fl_image(self.pipeline)
+        output.write_videofile(output_vid, audio=False)
+
     def pipeline(self, img):
+        '''run an image through the full pipeline and return a lane-filled image'''
         img = self.correct_distortion(img)
-        img = perspective_transform(img)
+        img = self.perspective_transform(img)
+        mask = self.edge_detection(img)
+        img[mask != 1] = 0
         raise NotImplemented
 
     def perspective_transform(self, img):
         '''Transform the perspective'''
         # XXX: For some reason img shape coordinates need to be flipped here
-        return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1],
+        return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1], 
             flags=cv2.INTER_LINEAR)    
 
     def correct_distortion(self, img):
@@ -272,11 +283,22 @@ class LaneLines(object):
 
         return mask
 
+        self.detected = False  
+        self.recent_xfitted = [] 
+        self.bestx = None     
+        self.best_fit = None  
+        self.current_fit = [np.array([False])]  
+        self.radius_of_curvature = None 
+        self.line_base_pos = None 
+        self.diffs = np.array([0,0,0], dtype='float') 
+        self.allx = None  
+        self.ally = None
+
     def find_lanes(self, binary_warped, debug=False):
-        raise NotImplemented
+        raise UnimplementedError
 
     def fill_lanes(self, img):
-        raise NotImplemented
+        raise UnimplementedError
 
 # Define a class to receive the characteristics of each line detection
 class Line():
@@ -303,29 +325,27 @@ class Line():
         self.ally = None
 
 if __name__ == '__main__':
-    lane_lines = LaneLines()
-    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
-    img_blank = np.zeros_like(img)
-    # Test calibration and update calibration data file
-    lane_lines.calibrate(debug = True, read_cal = False)
 
+    lane_lines = LaneLines()
+
+    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
     img_blank = np.zeros_like(img)
     # Test Image Transformation
     transform_img = cv2.imread(os.path.join("test_img", "transform_test.jpg"))
     
-    undistort = lane_lines.correct_distortion(transform_img)
+    # Test calibration and update calibration data file
+    #lane_lines.calibrate(debug = True, read_cal = False)
+
+    img_blank = np.zeros_like(img)
+
+    undistort = lane_lines.correct_distortion(img)
     write_name = os.path.join("results", "test-undistort.jpg")
     cv2.imwrite(write_name, undistort)
-
-    transform = lane_lines.perspective_transform(undistort)
-    write_name = os.path.join("results", "test-transform.jpg")
-    cv2.imwrite(write_name, transform)
 
     # Test color thresh
     color_mask = lane_lines.color_thresh(img)
     cv2.imwrite(os.path.join("results", "color_edge.jpg"), 255*color_mask)
     
-    #img = cv2.cvtColor(color_mask, cv2.COLOR_GRAY2RGB)
     # Test magnitude thresh
     magnitude_mask = lane_lines.magnitude_thresh(img)
     cv2.imwrite(os.path.join("results", "magnitude_edge.jpg"), 255*magnitude_mask)
@@ -343,12 +363,27 @@ if __name__ == '__main__':
     cv2.imwrite(os.path.join("results", "dir_edge.jpg"), 255*dir_mask)
 
     # Test location thresh
-    loc_img = lane_lines.location_thresh(img)    
-    cv2.imwrite(os.path.join("results", "loc_thresh.jpg"), 255*loc_img)
+    loc_mask = lane_lines.location_thresh(img)    
+    cv2.imwrite(os.path.join("results", "loc_thresh.jpg"), 255*loc_mask)
 
     # Test edge detection pipelien
-    edge_img = lane_lines.edge_detection(img)
-    cv2.imwrite(os.path.join("results", "edge.jpg"), 255*edge_img)
+    edge_mask = lane_lines.edge_detection(undistort)
+    cv2.imwrite(os.path.join("results", "edge.jpg"), 255*edge_mask)
+ 
+    edge_img = np.copy(undistort)
+    edge_img[edge_mask != 1 ] = 0
+
+    transform = lane_lines.perspective_transform(edge_img)
+    write_name = os.path.join("results", "test-transform.jpg")
+    cv2.imwrite(write_name, transform)
+
+
+    input_vid = os.path.join("test_vid",'project_video.mp4')
+    output_vid = os.path.join("results", "project_video_output.mp4")
+    lane_lines.process_video(input_vid, output_vid)
+
+    #lane_lines.find_lanes(img2, True)
+    #lane_lines.find_lanes(img3, True)
     
     #lane_lines.lane_curvature(img, True)
 
@@ -357,5 +392,4 @@ if __name__ == '__main__':
     # TODO: Get lane_curvature working
     # TODO: Get fill_lanes Working
     # TODO: Get pipeline working
-    # TODO: Test with a video
     # TODO: Writeup

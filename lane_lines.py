@@ -556,8 +556,13 @@ if __name__ == '__main__':
     img = lane_lines.find_lanes_conv(img2)
     write_name = os.path.join("results", "draw-lanes.jpg")
     cv2.imwrite(write_name, transform)
-    '''
 
+    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
+    img = lane_lines.pipeline(img)
+    write_name = os.path.join("results", "pipeline-test.jpg")
+    cv2.imwrite(write_name, transform)
+    '''
+    
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
     lane_lines.process_video(input_vid, output_vid)

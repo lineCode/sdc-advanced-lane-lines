@@ -31,6 +31,8 @@ class Line():
         #y values for detected line pixels
         self.ally = None
         self.points = None
+
+        # All of t
         self.fit_pts = None
 
 
@@ -456,19 +458,7 @@ class LaneLines(object):
             plt.plot(self.right.fit_pts, plot, color='green')
             plt.show()
 
-        # Create a polygon that with the top/bottom points from the left/right lane
-        poly_pts = [(int(self.left.fit_pts[0]), img.shape[0]),
-                    (int(self.left.fit_pts[-1:]), 0),
-                    (int(self.right.fit_pts[-1:]), 0),
-                    (int(self.right.fit_pts[0]), img.shape[0])]
-
-        # Draw that polygon over the original image
-        img = cv2.fillPoly(img, [np.array(poly_pts)], 255)
-
-        # Convert back to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-
-        return img
+        return self.fill_lanes(img)
 
     def calculate_curvature(self, img,):
         def get_curve(y_val, poly):
@@ -482,22 +472,19 @@ class LaneLines(object):
         print("Curve radious: left %0.2f, right %0.2f" %(l_curve, r_curve))
 
     def fill_lanes(self, img):
-        # Create an image to draw the lines on
-        warp_zero = np.zeros_like(warped).astype(np.uint8)
-        color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+        # Create a polygon that with the top/bottom points from the left/right lane
+        poly_pts = [(int(self.left.fit_pts[0]), img.shape[0]),
+                    (int(self.left.fit_pts[-1:]), 0),
+                    (int(self.right.fit_pts[-1:]), 0),
+                    (int(self.right.fit_pts[0]), img.shape[0])]
 
-        # Recast the x and y points into usable format for cv2.fillPoly()
-        pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-        pts = np.hstack((pts_left, pts_right))
+        # Draw that polygon over the original image
+        img = cv2.fillPoly(img, [np.array(poly_pts)], 255)
 
-        # Draw the lane onto the warped blank image
-        cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+        # Convert back to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
 
-        # Warp the blank back to original image space using inverse perspective matrix (Minv)
-        newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0])) 
-        # Combine the result with the original image
-        result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+        return img
 
 if __name__ == '__main__':
 
@@ -558,11 +545,11 @@ if __name__ == '__main__':
     cv2.imwrite(write_name, transform)
 
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))
-    img = lane_lines.pipeline(img)
-    write_name = os.path.join("results", "pipeline-test.jpg")
-    cv2.imwrite(write_name, transform)
+    pipeline = lane_lines.pipeline(img)
+    write_name = os.path.join("results", "pipeline.jpg")
+    cv2.imwrite(write_name, pipeline)
     '''
-    
+
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
     lane_lines.process_video(input_vid, output_vid)

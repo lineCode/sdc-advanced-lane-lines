@@ -77,6 +77,7 @@ class LaneLines(object):
         self.trans_src = np.float32([bl, tl, tr, br])
         self.trans_dst = np.float32([dbl, dtl, dtr, dbr])
         self.trans_M = None
+        self.trans_M_rev = None
 
         # Calibrate the camera and setup transformqtion matrix
         self.calibrate()
@@ -164,6 +165,7 @@ class LaneLines(object):
     def setup_transform(self):
         '''Use the pre-calculated points to save the transformation matrix'''
         self.trans_M = cv2.getPerspectiveTransform(self.trans_src, self.trans_dst)
+        self.trans_M_rev = cv2.getPerspectiveTransform(self.trans_dst, self.trans_src)
 
     def process_video(self, input_vid, output_vid):
         '''Run an video through the pipeline'''
@@ -179,17 +181,22 @@ class LaneLines(object):
         img[mask != 1] = 0
         img = self.perspective_transform(img)
 
-        mask = self.find_lanes_conv(img)
+        img = self.find_lanes_conv(img)
+        plt.imshow(img); plt.show()
 
-        plt.imshow(mask); plt.show()
-        return mask
+        img = self.perspective_transform(img, rev = True)
+        plt.imshow(img); plt.show()
+        return img
         raise NotImplemented
 
-    def perspective_transform(self, img):
+    def perspective_transform(self, img, rev=False):
         '''Transform the perspective'''
         # XXX: For some reason img shape coordinates need to be flipped here
+        if rev:
+            return cv2.warpPerspective(img, self.trans_M_rev, (img.shape[1], img.shape[0]), 
+                    flags=cv2.INTER_LINEAR)  
         return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1], 
-            flags=cv2.INTER_LINEAR)    
+                flags=cv2.INTER_LINEAR)    
 
     def correct_distortion(self, img):
         '''Given an image, use pre-calculated correction/distortion matrices to undistort the image'''
@@ -326,9 +333,6 @@ class LaneLines(object):
         img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         img[img != 0] = 1
 
-        plt.imshow(img*255)
-        plt.show()
-        print(img.shape)
         w_width = 50
         w_height = 80
         margin = 50
@@ -341,6 +345,7 @@ class LaneLines(object):
 
         img_bottom = int(img.shape[0] / 4 * 3)
         img_center = int(img.shape[1] / 2)
+
         # Bottom left corner
         l_sum = np.sum(img[img_bottom:, :img_center], axis=0)
         l_center = np.argmax(np.convolve(w, l_sum)) - w_width / 2
@@ -349,10 +354,14 @@ class LaneLines(object):
         r_sum = np.sum(img[img_bottom:, img_center:], axis=0)
         r_center = np.argmax(np.convolve(w,r_sum)) - w_width / 2 + img_center
     
-        w_centroids.append((l_center, r_center))
+        w_centroids.append(((l_center, w_height * 0.5), (r_center, w_height * 0.5)))
 
         for level in range(1, levels):
-            img_layer = np.sum(img[int(img.shape[0] - (level + 1) * w_height):int(img.shape[0] - level * w_height), :], axis=0)
+            y_max = (level + 1) * w_height
+            y_min = level * w_height
+            y_center = (level + 0.5) * w_height
+
+            img_layer = np.sum(img[int(img.shape[0] - y_max):int(img.shape[0] - y_min), :], axis=0)
             conv_signal = np.convolve(w, img_layer)
 
             l_min_idx = int(max(l_center + offset - margin, 0))
@@ -363,29 +372,65 @@ class LaneLines(object):
             r_max_idx = int(min(r_center + offset + margin, img.shape[1]))
             r_center =  np.argmax(conv_signal[r_min_idx:r_max_idx]) + r_min_idx - offset
 
-            w_centroids.append((l_center, r_center))
+            w_centroids.append(((l_center, y_center), (r_center, y_center)))
 
         if len(w_centroids) <= 0:
             return img
+
+
 
         l_points = np.zeros_like(img)
         r_points = np.zeros_like(img)
 
         for level in range(0, len(w_centroids)):
-            l_mask = window_mask(w_width, w_height, img, w_centroids[level][0], level)
+            l_mask = window_mask(w_width, w_height, img, w_centroids[level][0][0], level)
             l_points[l_mask == 1] = 1
 
-            r_mask = window_mask(w_width, w_height, img, w_centroids[level][1], level)
+            r_mask = window_mask(w_width, w_height, img, w_centroids[level][1][0], level)
             r_points[r_mask == 1] = 1
 
         img = np.zeros_like(img)
-        img[(r_points == 1) | (l_points == 1)] = 1
 
-        self.left.points = w_centroids[:][0]
-        self.right.points = w_centroids[:][1]
+        img[(l_points == 1) | (r_points == 1)] = 1
+        
+        self.left.points = [c[0] for c in w_centroids]
+        self.right.points = [c[1] for c in w_centroids]
+
+        # Fit a second order polynomial to each
+        left_x = [p[1] for p in self.left.points]
+        left_y = [p[0] for p in self.left.points]
+        self.left.best_fit = np.polyfit(left_x, left_y, 2)
+
+        right_x = [p[1] for p in self.right.points]
+        right_y = [p[0] for p in self.right.points]
+        self.right.best_fit = np.polyfit(right_x, right_y[::-1], 2)
+        print("XXXXX")
+        print(right_y)
+
+
+
+        plot = np.linspace(0, img.shape[0] - 1, img.shape[0] )
+        plot = plot[::-1]
+        self.left.best_fit  = (self.left.best_fit [0]**2) * plot + self.left.best_fit [1]*plot + self.left.best_fit [2]
+        self.right.best_fit = (self.right.best_fit[0]**2) * plot + self.right.best_fit[1]*plot + self.right.best_fit[2]
+
+        self.left.best_fit[self.left.best_fit <  0] = 0
+
+        self.right.best_fit[self.right.best_fit > img.shape[1]] = img.shape[1]
+        #print(self.right.best_fit)
+
+
+        #plt.plot(left_y, left_x, color='red')
+        #plt.plot(right_y[::-1], right_x, color='green')
+
+        plt.plot(self.left.best_fit, plot, color='red')
+        plt.plot(self.right.best_fit, plot, color='green')
+
+        #img = cv2.fillPoly(img, self.left.best_fit + self.right.best_fit, (0,255, 0))
+        #plt.imshow(img*255)
+        #plt.show()
 
         return img
-        #self.left.best_fit = np.polyfit()
 
 
     def find_lanes_junk(self, binary_warped, debug=False):

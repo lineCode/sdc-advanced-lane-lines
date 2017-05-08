@@ -4,8 +4,11 @@ import os
 import glob
 import pickle
 
+from collections import deque
+
 import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip
+
 
 
 # Define a class to receive the characteristics of each line detection
@@ -32,7 +35,7 @@ class Line():
         #y values for detected line pixels
         self.ally = None
         '''
-        self.points = None
+        self.points = deque(maxlen=50)
 
         # Side
         self.side = side
@@ -48,6 +51,12 @@ class Line():
 
         # The curvature of the line
         self.curve = None
+
+    def update_points(self, centroids, idx):
+        '''Given a list of centroid points and a lane index, update Line points'''
+        points = [c[idx] for c in centroids]
+        print(len(points))
+        self.points.extendleft(points)
 
     def update_best_fit(self):
         '''Update the best fit polynomials based on current points'''
@@ -217,7 +226,7 @@ class LaneLines(object):
         output = clip.fl_image(self.pipeline)
         output.write_videofile(output_vid, audio=False)
 
-    def pipeline(self, img, debug=True):
+    def pipeline(self, img, debug=False):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -452,9 +461,9 @@ class LaneLines(object):
             return img
 
         # Update left/right lane to reflect detected points
-        self.left.points = [c[0] for c in w_centroids]
-        self.right.points = [c[1] for c in w_centroids]
-
+        self.left.update_points(w_centroids, 0)
+        self.right.update_points(w_centroids, 1)
+   
         # Fit a second order polynomial to right/left lane
         self.left.update_best_fit()
         self.right.update_best_fit()

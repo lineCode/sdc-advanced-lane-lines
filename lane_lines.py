@@ -20,16 +20,18 @@ class Line():
 
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]  
-        #radius of curvature of the line in some units
-        self.radius_of_curvature = None 
+
         #distance in meters of vehicle center from the line
         self.line_base_pos = None 
         #difference in fit coefficients between last and new fits
         self.diffs = np.array([0,0,0], dtype='float') 
+        
+        ''' fit_pts contains (x,y) for all f(y)
         #x values for detected line pixels
         self.allx = None  
         #y values for detected line pixels
         self.ally = None
+        '''
         self.points = None
 
         # Side
@@ -44,6 +46,9 @@ class Line():
         # Polynomial coefficients averaged over last detected Centroid pts
         self.best_fit = None
 
+        # The curvature of the line
+        self.curve = None
+
     def update_best_fit(self):
         '''Update the best fit polynomials based on current points'''
         x = [p[1] for p in self.points]
@@ -53,6 +58,28 @@ class Line():
             y = y[::-1]
         self.best_fit = np.polyfit(x, y, 2)
 
+    def update_fit_pts(self, y):
+        '''Given an image.shape y max, use the polynomial fit to calculate f(y) for all values of y'''
+        # Create an array with a values  0 to img.shape, used for poly_fit
+        plot = np.linspace(0, y - 1, y)
+
+        # XXX: and reveres it for proper fitting of right lane
+        if self.side == 'right':
+            plot = plot[::-1]
+
+        # Calculate points f(y) = Ay^2 + By + C for all y values in plot
+        self.fit_pts  = (self.best_fit [0]**2) * plot + \
+                self.best_fit [1]*plot + self.best_fit [2]
+
+        # If anything goes to far left/right, cap it to image edge 
+        # XXX: not sure if we should actually do this
+        self.fit_pts[self.fit_pts <  0] = 0
+        self.fit_pts[self.fit_pts > img.shape[1]] = img.shape[1]
+
+    def update_curve(self, y_val):
+        '''Given a y_val, update the line curvature'''
+        poly = self.best_fit
+        self.curve = ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
 
 
 class LaneLines(object):
@@ -190,7 +217,7 @@ class LaneLines(object):
         output = clip.fl_image(self.pipeline)
         output.write_videofile(output_vid, audio=False)
 
-    def pipeline(self, img, debug=False):
+    def pipeline(self, img, debug=True):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -206,11 +233,6 @@ class LaneLines(object):
 
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
-
-        # Show final lane identification
-        if debug:
-            plt.imshow(img)
-            plt.show()
 
         # transform lane polygon back to normal view
         img = self.perspective_transform(img, rev = True)
@@ -371,7 +393,7 @@ class LaneLines(object):
         output[int(img_ref.shape[0]-(level+1)*height):int(img_ref.shape[0]-level*height),max(0,int(center-width/2)):min(int(center+width/2),img_ref.shape[1])] = 1
         return output
 
-    def find_lanes_conv(self, img, debug=False):
+    def find_lanes_conv(self, img, debug=False, w_width=50, w_height=80, margin=50):
         '''Take a edge detected, perspective transformed image and detect lines
         Will update self.left and self.right with correct pixel lists, fit lines, etc.
         '''
@@ -379,21 +401,14 @@ class LaneLines(object):
         img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         img[img != 0] = 1
 
-        # Set some tunable values
-        w_width = 50
-        w_height = 80
-        margin = 50
-
-        # Pre-calculate a few common values
-        levels = int(img.shape[0] / w_height)
-        offset = w_width / 2
-
         # Initialize some values
         w_centroids = []
         w = np.ones(w_width)
         y_center = w_height * 0.5
 
-        # Calculate the y center, bottom and center of image.
+        # Calculate the y center, bottom and center of image, and some other common values.
+        levels = int(img.shape[0] / w_height)
+        offset = w_width / 2
         img_bottom = int(img.shape[0] / 4 * 3)
         img_center = int(img.shape[1] / 2)
 
@@ -444,27 +459,14 @@ class LaneLines(object):
         self.left.update_best_fit()
         self.right.update_best_fit()
 
-        # Create an array with a values  0 to img.shape, used for poly_fit
-        # XXX: and reveres it for proper fitting
-        plot = np.linspace(0, img.shape[0] - 1, img.shape[0] )
-        plot = plot[::-1]
-
-        # Calculate points f(y) = Ay^2 + By + C for all y values in plot
-        self.left.fit_pts  = (self.left.best_fit [0]**2) * plot + \
-                self.left.best_fit [1]*plot + self.left.best_fit [2]
-        self.right.fit_pts = (self.right.best_fit[0]**2) * plot + \
-                self.right.best_fit[1]*plot + self.right.best_fit[2]
-
-        # If anything goes to far left, cap it to image edge
-        # XXX: not sure if we should actually do this
-        self.left.fit_pts[self.left.fit_pts <  0] = 0
-
-        # If anything goes to far right, cap it to image edge
-        # XXX: not sure if we should actually do this
-        self.right.fit_pts[self.right.fit_pts > img.shape[1]] = img.shape[1]
+        # calculate f(y) for y = [0,img.shape[0]]
+        self.left.update_fit_pts(img.shape[0])
+        self.right.update_fit_pts(img.shape[0])
 
         # Call the helper function to draw a block over the original image for each found centroid
         if debug:
+            plot = np.linspace(0, img.shape[0] - 1, img.shape[0])
+
             l_points = np.zeros_like(img)
             r_points = np.zeros_like(img)
 
@@ -486,15 +488,11 @@ class LaneLines(object):
 
     def calculate_curvature(self, img):
         '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
-        def get_curve(y_val, poly):
-            return ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
+        y_val = img.shape[1] # XXX: Currently the max, we might want to tune this
+        self.left.update_curve(y_val)
+        self.right.update_curve(y_val)
 
-        y_max = img.shape[1]
-        y_val = y_max
-        l_curve = get_curve(y_val, self.left.best_fit)
-        r_curve = get_curve(y_val, self.right.best_fit)
-
-        curve_txt =  "Curve radious: left %0.2f, right %0.2f" %(l_curve, r_curve)
+        curve_txt =  "Curve radious: left %0.2f, right %0.2f" %(self.left.curve, self.right.curve)
         return cv2.putText(img, curve_txt, (50, 50), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def fill_lanes(self, img):
@@ -588,7 +586,6 @@ if __name__ == '__main__':
   
     # TODO: Get find_lanes working on the update case using classes
     # TODO: Update lane curvature to work for meters, not pixels
-    # TODO: Update lane curvature to print text to screen
     # TODO: Writeup
     # TODO: Make find_lanes more robust
     # TODO: Re-test edge detection to verify find_lanes is getting decent data

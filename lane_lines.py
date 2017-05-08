@@ -20,7 +20,7 @@ class Line():
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]  
 
-        # The most current x coordinate of the bottom pixel (in meters)
+        # Distance from bottom pixel to center of image
         self.bottom_x = None
 
         # A fix-sized list of all centroids detected in the line
@@ -40,18 +40,21 @@ class Line():
 
         # The curvature of the line
         self.curve = None
+        
+    def update_layer1(self, points, center):
+        '''Update the bottom_x value'''
+        self.bottom_x = np.absolute(center - points[0])
 
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
         points = [c[idx] for c in centroids]
         self.points.extendleft(points)
-        self.bottom_x = points[0][1] * self.xm_per_pix
 
     def update_best_fit(self):
         '''Update the best fit polynomials based on current points'''
         # Extract x/y coordinates from (y, x) points and convert from pixels to meters
-        x = [p[1] * self.xm_per_pix for p in self.points] 
-        y = [p[0] * self.ym_per_pix for p in self.points] 
+        x = [p[1]  for p in self.points] 
+        y = [p[0] for p in self.points] 
 
         # XXX: Note something funky is going on with the dimensions and I needed to flip the right lane y values
         if self.side == 'right':
@@ -213,9 +216,9 @@ class LaneLines(object):
         print("Running %s through pipeline and outputting to %s" %(input_vid, output_vid))
         clip = VideoFileClip(input_vid)
         output = clip.fl_image(self.pipeline)
-        output.write_videofile(output_vid, audio=False)
+        output.write_videofile(output_vid, audio = False)
 
-    def pipeline(self, img, debug=True):
+    def pipeline(self, img, debug=False):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -377,7 +380,6 @@ class LaneLines(object):
 
         return mask
 
-
     def perspective_transform(self, img, rev=False):
         '''Transform the perspective'''
         # XXX: For some reason img shape coordinates need to be flipped here
@@ -390,7 +392,10 @@ class LaneLines(object):
     def window_mask(self, width, height, img_ref, center,level):
         '''Small helper image to draw blocks over centroids given an image'''
         output = np.zeros_like(img_ref)
-        output[int(img_ref.shape[0]-(level+1)*height):int(img_ref.shape[0]-level*height),max(0,int(center-width/2)):min(int(center+width/2),img_ref.shape[1])] = 1
+        output[int(img_ref.shape[0] - (level + 1) * height) \
+             : int(img_ref.shape[0] - level * height), \
+               max( 0, int( center - width / 2)) \
+             : min( int(center + width / 2), img_ref.shape[1])] = 1
         return output
 
     def find_lanes_conv(self, img, debug=False, w_width=50, w_height=80, margin=50):
@@ -421,8 +426,14 @@ class LaneLines(object):
         r_center = np.argmax(np.convolve(w,r_sum)) - w_width / 2 + img_center
     
         # Add all those centroids to a list
-        w_centroids.append(((l_center, y_center), (r_center, y_center)))
-                
+        left_pts = (l_center, y_center)
+        right_pts = (r_center, y_center)
+        w_centroids.append((left_pts, right_pts))
+        
+        # Update the values used to calculate car position        
+        self.left.update_layer1(left_pts, img_center)
+        self.right.update_layer1(right_pts, img_center)
+
         # Iterate over each level after the first, run a convolution, and calculate centroids
         for level in range(0, levels):
             # Initialize level top/bottom/center
@@ -488,7 +499,6 @@ class LaneLines(object):
             img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
             img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
             return img
-
         return self.fill_lanes(img)
 
     def overlay_img(self, orig, update):
@@ -506,8 +516,10 @@ class LaneLines(object):
 
     def calculate_car(self, img):
         '''Calculate the right offset of the car'''
-        right_offset = self.right.bottom_x - self.left.bottom_x 
-        car_txt =  "Car is %0.2f meters right of lane center" %(right_offset)
+
+        # pixel distance * pixel conversion. -1 gave a better value during tuning
+        right_offset = (self.right.bottom_x - self.left.bottom_x) * self.left.xm_per_pix - 1
+        car_txt =  "Car is %0.3f meters right of lane center" %(right_offset)
         return cv2.putText(img, car_txt, (50, 200), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def fill_lanes(self, img):
@@ -561,7 +573,7 @@ if __name__ == '__main__':
     loc_mask = lane_lines.location_thresh(color_img)    
     cv2.imwrite(os.path.join("results", "loc_thresh.jpg"), 255*loc_mask)
 
-    ############Unused in final pipeline
+    ############ Unused in final pipeline
     # Test dir thresh
     dir_mask = lane_lines.dir_thresh(img)
     cv2.imwrite(os.path.join("results", "dir_edge.jpg"), 255*dir_mask)
@@ -569,7 +581,7 @@ if __name__ == '__main__':
     # Test magnitude thresh
     magnitude_mask = lane_lines.magnitude_thresh(img)
     cv2.imwrite(os.path.join("results", "magnitude_edge.jpg"), 255*magnitude_mask)
-    ############
+    ############ Unused in final pipeline
 
     # Test edge detection pipeline
     edge_img = np.copy(undistort)
@@ -630,8 +642,4 @@ if __name__ == '__main__':
     input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
   
-    # TODO: Get find_lanes working on the update case using classes
-    # TODO: Writeup
-    # TODO: Make find_lanes more robust
-    # Cleanup code
-    # TODO: Fix lane line debug
+    # Fix curvature measurement

@@ -14,7 +14,7 @@ from moviepy.editor import VideoFileClip
 class Line():
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
-        self.ym_per_pix = 30/720 # meters per pixel in y dimension
+        self.ym_per_pix = 30/1000 # meters per pixel in y dimension
         self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
   
         #polynomial coefficients for the most recent fit
@@ -40,7 +40,7 @@ class Line():
 
         # The curvature of the line
         self.curve = None
-        
+
     def update_layer1(self, points, center):
         '''Update the bottom_x value'''
         self.bottom_x = np.absolute(center - points[0])
@@ -511,7 +511,7 @@ class LaneLines(object):
         self.left.update_curve(y_val)
         self.right.update_curve(y_val)
 
-        curve_txt =  "Curve radious: left %0.2f, right %0.2f" %(self.left.curve, self.right.curve)
+        curve_txt =  "Curve radius (meters): left %0.2f, right %0.2f" %(self.left.curve, self.right.curve)
         return cv2.putText(img, curve_txt, (50, 50), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def calculate_car(self, img):
@@ -543,7 +543,7 @@ if __name__ == '__main__':
     lane_lines = LaneLines()
 
     # Test calibration and update calibration data file
-    # lane_lines.calibrate(debug = True, read_cal = False)
+    lane_lines.calibrate(debug = True, read_cal = False)
 
     # Read in test image
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))
@@ -642,4 +642,3 @@ if __name__ == '__main__':
     input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
   
-    # Fix curvature measurement

@@ -7,17 +7,17 @@ import pickle
 import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip
 
+
 # Define a class to receive the characteristics of each line detection
 class Line():
-    def __init__(self):
+    def __init__(self, side, centroids):
         # was the line detected in the last iteration?
         self.detected = False  
         # x values of the last n fits of the line
         self.recent_xfitted = [] 
         #average x values of the fitted line over the last n iterations
         self.bestx = None     
-        #polynomial coefficients averaged over the last n iterations
-        self.best_fit = None  
+
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]  
         #radius of curvature of the line in some units
@@ -32,8 +32,27 @@ class Line():
         self.ally = None
         self.points = None
 
-        # All of t
+        # Side
+        self.side = side
+
+        # Number of Centroids
+        self.centroid_count = centroids
+
+        # All of the Centroid Points
         self.fit_pts = None
+
+        # Polynomial coefficients averaged over last detected Centroid pts
+        self.best_fit = None
+
+    def update_best_fit(self):
+        '''Update the best fit polynomials based on current points'''
+        x = [p[1] for p in self.points]
+        y = [p[0] for p in self.points]
+        # XXX: Note something funky is going on with the dimensions and I needed to flip the right lane y values
+        if self.side == 'right':
+            y = y[::-1]
+        self.best_fit = np.polyfit(x, y, 2)
+
 
 
 class LaneLines(object):
@@ -44,8 +63,8 @@ class LaneLines(object):
         self.results_dir = "results"
 
         # Initialize New Lanes
-        self.left = Line()
-        self.right = Line()
+        self.left = Line('left', 9)
+        self.right = Line('right', 9)
 
         # Set Calibration defaults
         self.dist_mtx = None
@@ -171,7 +190,7 @@ class LaneLines(object):
         output = clip.fl_image(self.pipeline)
         output.write_videofile(output_vid, audio=False)
 
-    def pipeline(self, img):
+    def pipeline(self, img, debug=False):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -183,9 +202,15 @@ class LaneLines(object):
 
         # create birds eye view
         img = self.perspective_transform(img)
+        plt.imshow(img)
 
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
+
+        # Show final lane identification
+        if debug:
+            plt.imshow(img)
+            plt.show()
 
         # transform lane polygon back to normal view
         img = self.perspective_transform(img, rev = True)
@@ -194,7 +219,13 @@ class LaneLines(object):
         img = cv2.addWeighted(undistort_img, 1, img, 0.3, 0)
 
         # Calculate the curvature
-        self.calculate_curvature(img)
+        img = self.calculate_curvature(img)
+
+        # Show final lane overlay image
+        if debug:
+            plt.imshow(img)
+            plt.show()
+
         return img
 
     def perspective_transform(self, img, rev=False):
@@ -360,11 +391,11 @@ class LaneLines(object):
         # Initialize some values
         w_centroids = []
         w = np.ones(w_width)
+        y_center = w_height * 0.5
 
         # Calculate the y center, bottom and center of image.
         img_bottom = int(img.shape[0] / 4 * 3)
         img_center = int(img.shape[1] / 2)
-        y_center = w_height * 0.5
 
         # Sum up pixesl and calculate center for the bottom left corner
         l_sum = np.sum(img[img_bottom:, :img_center], axis=0)
@@ -376,9 +407,9 @@ class LaneLines(object):
     
         # Add all those centroids to a list
         w_centroids.append(((l_center, y_center), (r_center, y_center)))
-
+                
         # Iterate over each level after the first, run a convolution, and calculate centroids
-        for level in range(1, levels):
+        for level in range(0, levels):
             # Initialize level top/bottom/center
             y_max = (level + 1) * w_height
             y_min = level * w_height
@@ -409,16 +440,9 @@ class LaneLines(object):
         self.left.points = [c[0] for c in w_centroids]
         self.right.points = [c[1] for c in w_centroids]
 
-        # Fit a second order polynomial to left lane
-        left_x = [p[1] for p in self.left.points]
-        left_y = [p[0] for p in self.left.points]
-        self.left.best_fit = np.polyfit(left_x, left_y, 2)
-
-        # Fit a second order polynomial to right lane
-        # XXX: Note something funky is going on with the dimensions and I needed to flip the right lane y values
-        right_x = [p[1] for p in self.right.points]
-        right_y = [p[0] for p in self.right.points]
-        self.right.best_fit = np.polyfit(right_x, right_y[::-1], 2)
+        # Fit a second order polynomial to right/left lane
+        self.left.update_best_fit()
+        self.right.update_best_fit()
 
         # Create an array with a values  0 to img.shape, used for poly_fit
         # XXX: and reveres it for proper fitting
@@ -460,7 +484,8 @@ class LaneLines(object):
 
         return self.fill_lanes(img)
 
-    def calculate_curvature(self, img,):
+    def calculate_curvature(self, img):
+        '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
         def get_curve(y_val, poly):
             return ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
 
@@ -469,7 +494,8 @@ class LaneLines(object):
         l_curve = get_curve(y_val, self.left.best_fit)
         r_curve = get_curve(y_val, self.right.best_fit)
 
-        print("Curve radious: left %0.2f, right %0.2f" %(l_curve, r_curve))
+        curve_txt =  "Curve radious: left %0.2f, right %0.2f" %(l_curve, r_curve)
+        return cv2.putText(img, curve_txt, (50, 50), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def fill_lanes(self, img):
         # Create a polygon that with the top/bottom points from the left/right lane
@@ -486,8 +512,8 @@ class LaneLines(object):
 
         return img
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     lane_lines = LaneLines()
     ''''
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))
@@ -543,12 +569,11 @@ if __name__ == '__main__':
     img = lane_lines.find_lanes_conv(img2)
     write_name = os.path.join("results", "draw-lanes.jpg")
     cv2.imwrite(write_name, transform)
-
+    '''
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))
-    pipeline = lane_lines.pipeline(img)
+    pipeline = lane_lines.pipeline(img, debug = True)
     write_name = os.path.join("results", "pipeline.jpg")
     cv2.imwrite(write_name, pipeline)
-    '''
 
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
@@ -561,9 +586,9 @@ if __name__ == '__main__':
     input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
   
-
     # TODO: Get find_lanes working on the update case using classes
     # TODO: Update lane curvature to work for meters, not pixels
+    # TODO: Update lane curvature to print text to screen
     # TODO: Writeup
     # TODO: Make find_lanes more robust
     # TODO: Re-test edge detection to verify find_lanes is getting decent data

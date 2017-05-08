@@ -14,6 +14,10 @@ from moviepy.editor import VideoFileClip
 # Define a class to receive the characteristics of each line detection
 class Line():
     def __init__(self, side, centroids):
+        # Constant pixel to meters variables
+        self.ym_per_pix = 30/720 # meters per pixel in y dimension
+        self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
+        
         # was the line detected in the last iteration?
         self.detected = False  
         # x values of the last n fits of the line
@@ -35,6 +39,11 @@ class Line():
         #y values for detected line pixels
         self.ally = None
         '''
+
+        # The most current x coordinate of the bottom pixel
+        self.bottom_x = None
+
+        # A fix-sized list of all centroids detected in the line
         self.points = deque(maxlen=50)
 
         # Side
@@ -55,13 +64,16 @@ class Line():
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
         points = [c[idx] for c in centroids]
-        print(len(points))
         self.points.extendleft(points)
+        self.bottom_x = points[0][1] * self.xm_per_pix
 
     def update_best_fit(self):
         '''Update the best fit polynomials based on current points'''
-        x = [p[1] for p in self.points]
-        y = [p[0] for p in self.points]
+
+        # Extract x/y coordinates from (y, x) points and convert from pixels to meters
+        x = [p[1] * self.xm_per_pix for p in self.points] 
+        y = [p[0] * self.ym_per_pix for p in self.points] 
+
         # XXX: Note something funky is going on with the dimensions and I needed to flip the right lane y values
         if self.side == 'right':
             y = y[::-1]
@@ -87,9 +99,10 @@ class Line():
 
     def update_curve(self, y_val):
         '''Given a y_val, update the line curvature'''
+        # Convert from pixels to meters
+        y_val = y_val * self.ym_per_pix
         poly = self.best_fit
         self.curve = ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
-
 
 class LaneLines(object):
     # TODO: Make this a singleton
@@ -238,7 +251,6 @@ class LaneLines(object):
 
         # create birds eye view
         img = self.perspective_transform(img)
-        plt.imshow(img)
 
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
@@ -247,10 +259,13 @@ class LaneLines(object):
         img = self.perspective_transform(img, rev = True)
 
         # overly lane polygon onto undistorted img
-        img = cv2.addWeighted(undistort_img, 1, img, 0.3, 0)
+        img = self.overlay_img(undistort_img, img)
 
         # Calculate the curvature
         img = self.calculate_curvature(img)
+
+        # Calculate the position of car
+        img = self.calculate_car(img)
 
         # Show final lane overlay image
         if debug:
@@ -281,47 +296,23 @@ class LaneLines(object):
         mask = np.zeros(img.shape[:-1])
 
         # Convert to HLS and take interest S values
-        color_mask = self.color_thresh(img, thresh=(90, 255))
+        color_mask = self.color_thresh(img, thresh = (90, 255))
         img[color_mask != 1 ] = 0
 
         # Remove anything to slanted
-        y_mask = self.gradient_thresh(img, orient = 'y', thresh=(30,200))
+        y_mask = self.gradient_thresh(img, orient = 'y', thresh = (30,200))
 
         # Remove anything to left/right leaning
-        x_mask = self.gradient_thresh(img, thresh=(0,200), orient = 'x')
+        x_mask = self.gradient_thresh(img, orient = 'x',  thresh = (0,200))
 
         # Cut off top and sides of image
-        location_mask = self.location_thresh(img, thresh=(0.6, 0.4))
-
-        #dir_mask = self.dir_thresh(img, thresh=(0.5, 2.3))
-        # mag_mask = self.magnitude_thresh(img, thresh=(0, 100))
+        location_mask = self.location_thresh(img, thresh = (0.6, 0.4))
 
         mask[(x_mask == 1) & (color_mask == 1) & 
              (y_mask == 1) & (location_mask == 1)] = 1
         return mask 
 
-    def location_thresh(self, img, thresh=(0.3, 0.3)):
-        '''Cut of the thresh %% top of the image'''
-        mask = np.zeros(img.shape[:-1])
-
-        #bottom = img.shape[0]
-        #y = int(bottom * thresh) # y cut-off
-        #mask[y:bottom,:] = 1
-
-        #filling pixels inside the polygon defined by "vertices" with the fill color 
-        poly_x = img.shape[1]
-        poly_y = img.shape[0]  
-
-        vertices = np.array([[(0 + poly_x * thresh[1],poly_y * thresh[0]),
-                (poly_x - poly_x * thresh[1], poly_y * thresh[0]), # A little bit left of center
-                (poly_x, poly_y),
-                (0, poly_y)]], dtype=np.int32)
-        ignore_mask_color = 1 
-        cv2.fillPoly(mask, vertices, ignore_mask_color)
-
-        return mask
-
-    def color_thresh(self, img, thresh=(50, 255)):
+    def color_thresh(self, img, thresh=(90, 255)):
         '''Return an img based on color threshold
         Converts img to HLS and then uses Saturation levels for threshold
         '''
@@ -334,24 +325,6 @@ class LaneLines(object):
         mask = np.zeros_like(S)
         mask[(S > thresh[0]) & (S <= thresh[1])] = 1
 
-        return mask
-
-    def magnitude_thresh(self, img, thresh=(50, 120), sobel_kernel=3):
-        # Convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        
-        # Generate sobel
-        x_sobel = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize = sobel_kernel)
-        y_sobel = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize = sobel_kernel)
-        
-        # Calculate scaled magnitude
-        magnitude = np.sqrt(x_sobel ** 2 + y_sobel ** 2)
-        scaled_magnitude = 255 * magnitude / np.max(magnitude)
-        
-        # Mask based on threshold
-        mask = np.zeros(gray.shape)
-        mask[(scaled_magnitude > thresh[0]) & (scaled_magnitude < thresh[1])] = 1
-        
         return mask
 
     def gradient_thresh(self, img, orient='x', thresh=(0, 15), sobel_kernel=15):
@@ -377,7 +350,48 @@ class LaneLines(object):
         
         return mask
 
+    def location_thresh(self, img, thresh=(0.3, 0.3)):
+        '''Cut of the thresh %% top of the image'''
+        mask = np.zeros(img.shape[:-1])
+
+        #bottom = img.shape[0]
+        #y = int(bottom * thresh) # y cut-off
+        #mask[y:bottom,:] = 1
+
+        #filling pixels inside the polygon defined by "vertices" with the fill color 
+        poly_x = img.shape[1]
+        poly_y = img.shape[0]  
+
+        vertices = np.array([[(0 + poly_x * thresh[1],poly_y * thresh[0]),
+                (poly_x - poly_x * thresh[1], poly_y * thresh[0]), # A little bit left of center
+                (poly_x, poly_y),
+                (0, poly_y)]], dtype=np.int32)
+        ignore_mask_color = 1 
+        cv2.fillPoly(mask, vertices, ignore_mask_color)
+
+        return mask
+
+    def magnitude_thresh(self, img, thresh=(50, 120), sobel_kernel=3):
+        '''Unused in final pipeline, threshold based off sobel magnitude'''
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        
+        # Generate sobel
+        x_sobel = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize = sobel_kernel)
+        y_sobel = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize = sobel_kernel)
+        
+        # Calculate scaled magnitude
+        magnitude = np.sqrt(x_sobel ** 2 + y_sobel ** 2)
+        scaled_magnitude = 255 * magnitude / np.max(magnitude)
+        
+        # Mask based on threshold
+        mask = np.zeros(gray.shape)
+        mask[(scaled_magnitude > thresh[0]) & (scaled_magnitude < thresh[1])] = 1
+        
+        return mask
+
     def dir_thresh(self, img, thresh=(0, np.pi/2), sobel_kernel=3):
+        '''Unused in final pipeline, threshold based off sobel direction'''
         # Convert to gray
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         
@@ -488,12 +502,21 @@ class LaneLines(object):
 
             img2 = np.zeros_like(img)
             img2[(l_points == 1) | (r_points == 1)] = 1
+            fig = plt.figure()
             plt.imshow(img2)
             plt.plot(self.left.fit_pts, plot, color='red')
             plt.plot(self.right.fit_pts, plot, color='green')
-            plt.show()
+
+            fig.canvas.draw()
+            img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+            img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            return img
 
         return self.fill_lanes(img)
+
+    def overlay_img(self, orig, update):
+        return cv2.addWeighted(orig, 1, update, 0.3, 0)
+
 
     def calculate_curvature(self, img):
         '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
@@ -503,6 +526,11 @@ class LaneLines(object):
 
         curve_txt =  "Curve radious: left %0.2f, right %0.2f" %(self.left.curve, self.right.curve)
         return cv2.putText(img, curve_txt, (50, 50), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
+
+    def calculate_car(self, img):
+        right_offset = self.right.bottom_x - self.left.bottom_x 
+        car_txt =  "Car is %0.2f meters right of lane center" %(right_offset)
+        return cv2.putText(img, car_txt, (50, 200), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def fill_lanes(self, img):
         # Create a polygon that with the top/bottom points from the left/right lane
@@ -522,66 +550,96 @@ class LaneLines(object):
 
 if __name__ == '__main__':
     lane_lines = LaneLines()
-    ''''
-    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
-    img_blank = np.zeros_like(img)
-    # Test Image Transformation
-    transform_img = cv2.imread(os.path.join("test_img", "transform_test.jpg"))
-    
+
     # Test calibration and update calibration data file
-    #lane_lines.calibrate(debug = True, read_cal = False)
+    # lane_lines.calibrate(debug = True, read_cal = False)
 
-    img_blank = np.zeros_like(img)
-
+    # Read in test image
+    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
+    write_name = os.path.join("results", "test-original.jpg")
+    cv2.imwrite(write_name, img)
+    
+    # Test undistort
     undistort = lane_lines.correct_distortion(img)
     write_name = os.path.join("results", "test-undistort.jpg")
     cv2.imwrite(write_name, undistort)
 
     # Test color thresh
-    color_mask = lane_lines.color_thresh(img)
-    cv2.imwrite(os.path.join("results", "color_edge.jpg"), 255*color_mask)
+    color_img = np.copy(undistort)
+    color_mask = lane_lines.color_thresh(img, thresh=(90, 255))
+    color_img[color_mask != 1 ] = 0
+    cv2.imwrite(os.path.join("results", "color_edge.jpg"), color_img)
     
-    # Test magnitude thresh
-    magnitude_mask = lane_lines.magnitude_thresh(img)
-    cv2.imwrite(os.path.join("results", "magnitude_edge.jpg"), 255*magnitude_mask)
-
-    # Test x gradient
-    x_mask = lane_lines.gradient_thresh(img, orient = 'x')
-    cv2.imwrite(os.path.join("results", "x_edge.jpg"), 255*x_mask)
-
     # Test y gradient
-    y_mask = lane_lines.gradient_thresh(img, orient = 'y')
+    y_mask = lane_lines.gradient_thresh(color_img, orient = 'y', thresh=(30,200))
     cv2.imwrite(os.path.join("results", "y_edge.jpg"), 255*y_mask)
 
+    # Test x gradient
+    x_mask = lane_lines.gradient_thresh(color_img, orient = 'x', thresh=(0,200))
+    cv2.imwrite(os.path.join("results", "x_edge.jpg"), 255*x_mask)
+
+    # Test location thresh
+    loc_mask = lane_lines.location_thresh(color_img)    
+    cv2.imwrite(os.path.join("results", "loc_thresh.jpg"), 255*loc_mask)
+
+    ############Unused in final pipeline
     # Test dir thresh
     dir_mask = lane_lines.dir_thresh(img)
     cv2.imwrite(os.path.join("results", "dir_edge.jpg"), 255*dir_mask)
 
-    # Test location thresh
-    loc_mask = lane_lines.location_thresh(img)    
-    cv2.imwrite(os.path.join("results", "loc_thresh.jpg"), 255*loc_mask)
+    # Test magnitude thresh
+    magnitude_mask = lane_lines.magnitude_thresh(img)
+    cv2.imwrite(os.path.join("results", "magnitude_edge.jpg"), 255*magnitude_mask)
+    ############
 
-    # Test edge detection pipelien
+    # Test edge detection pipeline
+    edge_img = np.copy(undistort)
     edge_mask = lane_lines.edge_detection(undistort)
     cv2.imwrite(os.path.join("results", "edge.jpg"), 255*edge_mask)
+    edge_img[edge_mask != 1] = 0
  
-    edge_img = np.copy(undistort)
-    edge_img[edge_mask != 1 ] = 0
-
+    # Test perspective transofrm in-step
     transform = lane_lines.perspective_transform(edge_img)
-    write_name = os.path.join("results", "test-transform.jpg")
+    write_name = os.path.join("results", "transform.jpg")
     cv2.imwrite(write_name, transform)
 
-    img = cv2.imread(os.path.join("test_img", "thresh_trans.jpg"))
-    img = lane_lines.find_lanes_conv(img2)
-    write_name = os.path.join("results", "draw-lanes.jpg")
-    cv2.imwrite(write_name, transform)
-    '''
-    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
-    pipeline = lane_lines.pipeline(img, debug = True)
+    # Test perspective transform
+    undistort_transform = lane_lines.perspective_transform(img)
+    write_name = os.path.join("results", "undistort_transform.jpg")
+    cv2.imwrite(write_name, undistort_transform)
+
+    # Test Lane detection
+    lanes_img = lane_lines.find_lanes_conv(transform, debug = True)
+    write_name = os.path.join("results", "lanes_lines.jpg")
+    cv2.imwrite(write_name, lanes_img)
+
+    # Test lane filling
+    lanes_filled = lane_lines.find_lanes_conv(transform)
+    write_name = os.path.join("results", "lanes_filled.jpg")
+    cv2.imwrite(write_name, lanes_filled)
+
+    # Test Untransform
+    tranformed_lanes = lane_lines.perspective_transform(lanes_filled, rev = True)
+    write_name = os.path.join("results", "transform_lanes.jpg")
+    cv2.imwrite(write_name, tranformed_lanes)
+
+    # Test curvature detection
+    curve = lane_lines.overlay_img(img, tranformed_lanes)
+    curve_img = lane_lines.calculate_curvature(curve)
+    write_name = os.path.join("results", "curves.jpg")
+    cv2.imwrite(write_name, curve_img)
+
+    # Test car detection
+    car = lane_lines.calculate_curvature(curve_img)
+    write_name = os.path.join("results", "car.jpg")
+    cv2.imwrite(write_name, car)
+
+    # Test full pipeline
+    pipeline = lane_lines.pipeline(img, debug=True)
     write_name = os.path.join("results", "pipeline.jpg")
     cv2.imwrite(write_name, pipeline)
 
+    # Run test videos through pipeline
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
     lane_lines.process_video(input_vid, output_vid)
@@ -594,8 +652,7 @@ if __name__ == '__main__':
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
   
     # TODO: Get find_lanes working on the update case using classes
-    # TODO: Update lane curvature to work for meters, not pixels
     # TODO: Writeup
     # TODO: Make find_lanes more robust
-    # TODO: Re-test edge detection to verify find_lanes is getting decent data
     # Cleanup code
+    # TODO: Fix lane line debug

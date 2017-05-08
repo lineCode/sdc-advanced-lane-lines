@@ -10,37 +10,17 @@ import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip
 
 
-
 # Define a class to receive the characteristics of each line detection
 class Line():
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
         self.ym_per_pix = 30/720 # meters per pixel in y dimension
         self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
-        
-        # was the line detected in the last iteration?
-        self.detected = False  
-        # x values of the last n fits of the line
-        self.recent_xfitted = [] 
-        #average x values of the fitted line over the last n iterations
-        self.bestx = None     
-
+  
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]  
 
-        #distance in meters of vehicle center from the line
-        self.line_base_pos = None 
-        #difference in fit coefficients between last and new fits
-        self.diffs = np.array([0,0,0], dtype='float') 
-        
-        ''' fit_pts contains (x,y) for all f(y)
-        #x values for detected line pixels
-        self.allx = None  
-        #y values for detected line pixels
-        self.ally = None
-        '''
-
-        # The most current x coordinate of the bottom pixel
+        # The most current x coordinate of the bottom pixel (in meters)
         self.bottom_x = None
 
         # A fix-sized list of all centroids detected in the line
@@ -69,7 +49,6 @@ class Line():
 
     def update_best_fit(self):
         '''Update the best fit polynomials based on current points'''
-
         # Extract x/y coordinates from (y, x) points and convert from pixels to meters
         x = [p[1] * self.xm_per_pix for p in self.points] 
         y = [p[0] * self.ym_per_pix for p in self.points] 
@@ -104,6 +83,7 @@ class Line():
         poly = self.best_fit
         self.curve = ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
 
+
 class LaneLines(object):
     # TODO: Make this a singleton
     def __init__(self):
@@ -121,9 +101,7 @@ class LaneLines(object):
         self.cal_file = os.path.join(self.results_dir, "calibration_data.p")
 
         # Set the perspective transform points
-        # They are broken down into src/dst top/bottom/left/right variables
-        # To provide clarity
-        # XXX: These were tuned on the test_image and assumer all images 
+        # XXX: These were tuned on the test_image and assume all images 
         # XXX: are of the same viewing angle and dimensions (front-facing, 1280x720)
         x = 1280
         y = 717
@@ -192,11 +170,9 @@ class LaneLines(object):
             if img_shape is None:
                 img_shape = gray.shape
 
-            # TODO: What should these look like? assert gray.shape == img_shape
             ret, corners = cv2.findChessboardCorners(gray, (x, y), None)
             
-            # TODO: Do we want to retry a different size?
-            # IF we found corners, update the lists and do some debug
+            # If we found corners, update the lists and do some debug
             if ret == True:
                 objpoints.append(objp)
                 imgpoints.append(corners)
@@ -239,7 +215,7 @@ class LaneLines(object):
         output = clip.fl_image(self.pipeline)
         output.write_videofile(output_vid, audio=False)
 
-    def pipeline(self, img, debug=False):
+    def pipeline(self, img, debug=True):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -272,16 +248,7 @@ class LaneLines(object):
             plt.imshow(img)
             plt.show()
 
-        return img
-
-    def perspective_transform(self, img, rev=False):
-        '''Transform the perspective'''
-        # XXX: For some reason img shape coordinates need to be flipped here
-        if rev:
-            return cv2.warpPerspective(img, self.trans_M_rev, (img.shape[1], img.shape[0]), 
-                    flags=cv2.INTER_LINEAR)  
-        return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1], 
-                flags=cv2.INTER_LINEAR)    
+        return img 
 
     def correct_distortion(self, img):
         '''Given an image, use pre-calculated correction/distortion matrices to undistort the image'''
@@ -410,6 +377,16 @@ class LaneLines(object):
 
         return mask
 
+
+    def perspective_transform(self, img, rev=False):
+        '''Transform the perspective'''
+        # XXX: For some reason img shape coordinates need to be flipped here
+        if rev:
+            return cv2.warpPerspective(img, self.trans_M_rev, (img.shape[1], img.shape[0]), 
+                    flags=cv2.INTER_LINEAR)  
+        return cv2.warpPerspective(img, self.trans_M, img.shape[-2::-1], 
+                flags=cv2.INTER_LINEAR)   
+
     def window_mask(self, width, height, img_ref, center,level):
         '''Small helper image to draw blocks over centroids given an image'''
         output = np.zeros_like(img_ref)
@@ -515,8 +492,8 @@ class LaneLines(object):
         return self.fill_lanes(img)
 
     def overlay_img(self, orig, update):
+        '''Overlay an image over another image'''
         return cv2.addWeighted(orig, 1, update, 0.3, 0)
-
 
     def calculate_curvature(self, img):
         '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
@@ -528,11 +505,13 @@ class LaneLines(object):
         return cv2.putText(img, curve_txt, (50, 50), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def calculate_car(self, img):
+        '''Calculate the right offset of the car'''
         right_offset = self.right.bottom_x - self.left.bottom_x 
         car_txt =  "Car is %0.2f meters right of lane center" %(right_offset)
         return cv2.putText(img, car_txt, (50, 200), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
     def fill_lanes(self, img):
+        '''Fill in a polygon mapping to the lane location'''
         # Create a polygon that with the top/bottom points from the left/right lane
         poly_pts = [(int(self.left.fit_pts[0]), img.shape[0]),
                     (int(self.left.fit_pts[-1:]), 0),
@@ -635,7 +614,7 @@ if __name__ == '__main__':
     cv2.imwrite(write_name, car)
 
     # Test full pipeline
-    pipeline = lane_lines.pipeline(img, debug=True)
+    pipeline = lane_lines.pipeline(img)
     write_name = os.path.join("results", "pipeline.jpg")
     cv2.imwrite(write_name, pipeline)
 

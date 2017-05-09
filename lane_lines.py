@@ -14,7 +14,7 @@ from moviepy.editor import VideoFileClip
 class Line():
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
-        self.ym_per_pix = 30/1000 # meters per pixel in y dimension
+        self.ym_per_pix = 30/720 # meters per pixel in y dimension
         self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
   
         #polynomial coefficients for the most recent fit
@@ -24,7 +24,7 @@ class Line():
         self.bottom_x = None
 
         # A fix-sized list of all centroids detected in the line
-        self.points = deque(maxlen=50)
+        self.points = deque(maxlen=100)
 
         # Side
         self.side = side
@@ -50,29 +50,26 @@ class Line():
         points = [c[idx] for c in centroids]
         self.points.extendleft(points)
 
-    def update_best_fit(self):
-        '''Update the best fit polynomials based on current points'''
-        # Extract x/y coordinates from (y, x) points and convert from pixels to meters
-        x = [p[1]  for p in self.points] 
-        y = [p[0] for p in self.points] 
+    def update_best_fit(self, curve=False):
+        '''Update the best fit polynomials based on current points f(y)'''
+        # Extract x/y coordinates from (y, x) points and convert from pixels to meters      
+        x = [p[0]  for p in self.points] 
+        y = [p[1] for p in self.points] 
 
-        # XXX: Note something funky is going on with the dimensions and I needed to flip the right lane y values
-        if self.side == 'right':
-            y = y[::-1]
-        self.best_fit = np.polyfit(x, y, 2)
+        if curve:
+            self.curve_fit = np.polyfit([n * self.ym_per_pix for n in y],
+                                        [n * self.xm_per_pix for n in x], 2)
+        else:
+            self.best_fit = np.polyfit(y, x, 2)
 
     def update_fit_pts(self, y):
         '''Given an image.shape y max, use the polynomial fit to calculate f(y) for all values of y'''
         # Create an array with a values  0 to img.shape, used for poly_fit
-        plot = np.linspace(0, y - 1, y)
-
-        # XXX: and reveres it for proper fitting of right lane
-        if self.side == 'right':
-            plot = plot[::-1]
+        plot = np.linspace(0, y, y)
 
         # Calculate points f(y) = Ay^2 + By + C for all y values in plot
-        self.fit_pts  = (self.best_fit [0]**2) * plot + \
-                self.best_fit [1]*plot + self.best_fit [2]
+        self.fit_pts  = (self.best_fit[0] * plot**2) + \
+                         self.best_fit[1] * plot + self.best_fit[2]
 
         # If anything goes to far left/right, cap it to image edge 
         # XXX: not sure if we should actually do this
@@ -81,10 +78,14 @@ class Line():
 
     def update_curve(self, y_val):
         '''Given a y_val, update the line curvature'''
+        # Create a best_fit in meter-space
+        self.update_best_fit(curve=True)
+        poly = self.curve_fit
+
         # Convert from pixels to meters
         y_val = y_val * self.ym_per_pix
-        poly = self.best_fit
-        self.curve = ((1 + (2*poly[0]*y_val + poly[1])**2)**1.5) / np.absolute(2*poly[0])
+
+        self.curve = ((1 + (2*poly[0]*y_val*self.ym_per_pix + poly[1])**2)**1.5) / np.absolute(2*poly[0])
 
 
 class LaneLines(object):
@@ -197,7 +198,7 @@ class LaneLines(object):
             for idx, fname in enumerate(images):
                 img = cv2.imread(fname)
                 img = self.correct_distortion(img)
-                #img = self.perspective_transform(img)
+                img = self.perspective_transform(img)
                 write_name = os.path.join(self.results_dir, 
                             'undistort' + str(idx) + '.jpg')
                 cv2.imwrite(write_name, img)
@@ -234,6 +235,11 @@ class LaneLines(object):
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
 
+        if debug:
+            img2 = self.find_lanes_conv(img, debug=True)
+            plt.imshow(img2)
+            plt.show()
+
         # transform lane polygon back to normal view
         img = self.perspective_transform(img, rev = True)
 
@@ -266,7 +272,7 @@ class LaneLines(object):
         mask = np.zeros(img.shape[:-1])
 
         # Convert to HLS and take interest S values
-        color_mask = self.color_thresh(img, thresh = (90, 255))
+        color_mask = self.color_thresh(img, thresh = (110, 255))
         img[color_mask != 1 ] = 0
 
         # Remove anything to slanted
@@ -282,7 +288,7 @@ class LaneLines(object):
              (y_mask == 1) & (location_mask == 1)] = 1
         return mask 
 
-    def color_thresh(self, img, thresh=(90, 255)):
+    def color_thresh(self, img, thresh=(60, 255)):
         '''Return an img based on color threshold
         Converts img to HLS and then uses Saturation levels for threshold
         '''
@@ -492,6 +498,7 @@ class LaneLines(object):
             img2[(l_points == 1) | (r_points == 1)] = 1
             fig = plt.figure()
             plt.imshow(img2)
+
             plt.plot(self.left.fit_pts, plot, color='red')
             plt.plot(self.right.fit_pts, plot, color='green')
 
@@ -507,7 +514,7 @@ class LaneLines(object):
 
     def calculate_curvature(self, img):
         '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
-        y_val = img.shape[1] # XXX: Currently the max, we might want to tune this
+        y_val = img.shape[0] # XXX: Currently the max, we might want to tune this
         self.left.update_curve(y_val)
         self.right.update_curve(y_val)
 
@@ -525,10 +532,12 @@ class LaneLines(object):
     def fill_lanes(self, img):
         '''Fill in a polygon mapping to the lane location'''
         # Create a polygon that with the top/bottom points from the left/right lane
-        poly_pts = [(int(self.left.fit_pts[0]), img.shape[0]),
+        poly_pts = [
+                    (int(self.left.fit_pts[0]), img.shape[0]),
                     (int(self.left.fit_pts[-1:]), 0),
                     (int(self.right.fit_pts[-1:]), 0),
-                    (int(self.right.fit_pts[0]), img.shape[0])]
+                    (int(self.right.fit_pts[0]), img.shape[0])
+                    ]
 
         # Draw that polygon over the original image
         img = cv2.fillPoly(img, [np.array(poly_pts)], 255)
@@ -543,7 +552,7 @@ if __name__ == '__main__':
     lane_lines = LaneLines()
 
     # Test calibration and update calibration data file
-    lane_lines.calibrate(debug = True, read_cal = False)
+    # lane_lines.calibrate(debug = True, read_cal = False)
 
     # Read in test image
     img = cv2.imread(os.path.join("test_img", "test1.jpg"))

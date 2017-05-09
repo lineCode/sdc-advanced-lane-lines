@@ -70,7 +70,7 @@ HTML("""
   <td><img width="200px" src="camera_cal/calibration02.jpg"></td>
   <td><img width="200px" src="results/corners_found2.jpg"></td>
   <td><img width="200px" src="results/undistort2.jpg"></td>
-</tr>
+</tr>""")
 ```
 
 
@@ -88,7 +88,6 @@ HTML("""
   <td><img width="200px" src="results/corners_found2.jpg"></td>
   <td><img width="200px" src="results/undistort2.jpg"></td>
 </tr>
-
 
 
 
@@ -122,8 +121,8 @@ HTML("""
 <td><b>Undistorted</b></td>
 </tr>
 <tr>
-<td><img src="files/results/test-original.jpg"></td>
-<td><img src="files/results/test-undistort.jpg"></td>
+<td><img src="results/test-original.jpg"></td>
+<td><img src="results/test-undistort.jpg"></td>
 </tr>
 </table>
 
@@ -180,12 +179,12 @@ HTML("""
 <td><b>Edge Detection</b></td>
 </tr>
 <tr>
-<td><img src="files/results/test-undistort.jpg"></td>
-<td><img src="files/results/color_edge.jpg"></td>
-<td><img src="files/results/y_edge.jpg"></td>
-<td><img src="files/results/x_edge.jpg"></td>
-<td><img src="files/results/loc_thresh.jpg"></td>
-<td><img src="files/results/edge.jpg"></td>
+<td><img src="results/test-undistort.jpg"></td>
+<td><img src="results/color_edge.jpg"></td>
+<td><img src="results/y_edge.jpg"></td>
+<td><img src="results/x_edge.jpg"></td>
+<td><img src="results/loc_thresh.jpg"></td>
+<td><img src="results/edge.jpg"></td>
 </tr>
 </table>
 
@@ -227,9 +226,9 @@ HTML("""
 <td><b>Transformed (Undistorted image)</b></td>
 </tr>
 <tr>
-<td><img src="files/results/test-undistort.jpg"></td>
-<td><img src="files/results/transform.jpg"></td>
-<td><img src="files/results/undistort_transform.jpg"></td>
+<td><img src="results/test-undistort.jpg"></td>
+<td><img src="results/transform.jpg"></td>
+<td><img src="results/undistort_transform.jpg"></td>
 </tr>
 </table>
 
@@ -265,8 +264,8 @@ HTML("""
 <td><b>Lanes</b></td>
 </tr>
 <tr>
-<td><img src="files/results/transform.jpg"></td>
-<td><img src="files/results/lanes_lines.jpg"></td>
+<td><img src="results/transform.jpg"></td>
+<td><img src="results/lanes_lines.jpg"></td>
 </tr>
 </table>
 
@@ -302,8 +301,8 @@ HTML("""
 <td><b>Lanes</b></td>
 </tr>
 <tr>
-<td><img src="files/results/transform.jpg"></td>
-<td><img src="files/results/lanes_filled.jpg"></td>
+<td><img src="results/transform.jpg"></td>
+<td><img src="results/lanes_filled.jpg"></td>
 </tr>
 </table>
 
@@ -339,8 +338,8 @@ HTML("""
 <td><b>Un-Transformed</b></td>
 </tr>
 <tr>
-<td><img src="files/results/lanes_filled.jpg"></td>
-<td><img src="files/results/transform_lanes.jpg"></td>
+<td><img src="results/lanes_filled.jpg"></td>
+<td><img src="results/transform_lanes.jpg"></td>
 </tr>
 </table>
 
@@ -402,7 +401,7 @@ HTML("""
 
 
 <video width="960" height="540" controls>
-  <source src="files/results/project_video_output.mp4">
+  <source src="results/project_video_output.mp4">
 </video>
 
 

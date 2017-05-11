@@ -62,7 +62,7 @@ class Line():
         else:
             self.best_fit = np.polyfit(y, x, 2)
 
-    def update_fit_pts(self, y):
+    def update_fit_pts(self, y, x):
         '''Given an image.shape y max, use the polynomial fit to calculate f(y) for all values of y'''
         # Create an array with a values  0 to img.shape, used for poly_fit
         plot = np.linspace(0, y, y)
@@ -74,7 +74,7 @@ class Line():
         # If anything goes to far left/right, cap it to image edge 
         # XXX: not sure if we should actually do this
         self.fit_pts[self.fit_pts <  0] = 0
-        self.fit_pts[self.fit_pts > img.shape[1]] = img.shape[1]
+        self.fit_pts[self.fit_pts > x] = x
 
     def update_curve(self, y_val):
         '''Given a y_val, update the line curvature'''
@@ -477,8 +477,8 @@ class LaneLines(object):
         self.right.update_best_fit()
 
         # calculate f(y) for y = [0,img.shape[0]]
-        self.left.update_fit_pts(img.shape[0])
-        self.right.update_fit_pts(img.shape[0])
+        self.left.update_fit_pts(img.shape[0], img.shape[1])
+        self.right.update_fit_pts(img.shape[0], img.shape[1])
 
         # Call the helper function to draw a block over the original image for each found centroid
         if debug:

@@ -41,6 +41,9 @@ class Line():
         # The curvature of the line
         self.curve = None
 
+        # The y_pts that map to fit_pts
+        self.y_pts = None
+
     def update_layer1(self, points, center):
         '''Update the bottom_x value'''
         self.bottom_x = np.absolute(center - points[0])
@@ -65,16 +68,19 @@ class Line():
     def update_fit_pts(self, y, x):
         '''Given an image.shape y max, use the polynomial fit to calculate f(y) for all values of y'''
         # Create an array with a values  0 to img.shape, used for poly_fit
-        plot = np.linspace(0, y, y)
+        self.y_pts = np.linspace(0, y, y)
 
         # Calculate points f(y) = Ay^2 + By + C for all y values in plot
-        self.fit_pts  = (self.best_fit[0] * plot**2) + \
-                         self.best_fit[1] * plot + self.best_fit[2]
+        self.fit_pts  = (self.best_fit[0] * self.y_pts**2) + \
+                         self.best_fit[1] * self.y_pts + self.best_fit[2]
 
         # If anything goes to far left/right, cap it to image edge 
         # XXX: not sure if we should actually do this
         self.fit_pts[self.fit_pts <  0] = 0
         self.fit_pts[self.fit_pts > x] = x
+
+        # Flip the points because 0 is top rather than bottom
+        self.fit_pts = np.flipud(self.fit_pts)
 
     def update_curve(self, y_val):
         '''Given a y_val, update the line curvature'''
@@ -232,13 +238,13 @@ class LaneLines(object):
         # create birds eye view
         img = self.perspective_transform(img)
 
+        # Display the detected lanes before img is altered in debug mode
+        if debug:
+            self.find_lanes_conv(img, debug=True) # This will draw a debug canvas
+            plt.show()
+
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
-
-        if debug:
-            img2 = self.find_lanes_conv(img, debug=True)
-            plt.imshow(img2)
-            plt.show()
 
         # transform lane polygon back to normal view
         img = self.perspective_transform(img, rev = True)
@@ -482,8 +488,6 @@ class LaneLines(object):
 
         # Call the helper function to draw a block over the original image for each found centroid
         if debug:
-            plot = np.linspace(0, img.shape[0] - 1, img.shape[0])
-
             l_points = np.zeros_like(img)
             r_points = np.zeros_like(img)
 
@@ -499,8 +503,8 @@ class LaneLines(object):
             fig = plt.figure()
             plt.imshow(img2)
 
-            plt.plot(self.left.fit_pts, plot, color='red')
-            plt.plot(self.right.fit_pts, plot, color='green')
+            plt.plot(self.left.fit_pts, self.left.y_pts, color='red')
+            plt.plot(self.right.fit_pts, self.right.y_pts, color='green')
 
             fig.canvas.draw()
             img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
@@ -510,6 +514,12 @@ class LaneLines(object):
 
     def overlay_img(self, orig, update):
         '''Overlay an image over another image'''
+        # If one of the images is gray scale and the other is RGB, convert to RGB
+
+        if len(orig.shape) > len(update.shape):
+            update = cv2.cvtColor(update, cv2.COLOR_GRAY2RGB)
+        elif len(orig.shape) < len(update.shape):
+            orig = cv2.cvtColor(orig, cv2.COLOR_GRAY2RGB)
         return cv2.addWeighted(orig, 1, update, 0.3, 0)
 
     def calculate_curvature(self, img):
@@ -531,26 +541,19 @@ class LaneLines(object):
 
     def fill_lanes(self, img):
         '''Fill in a polygon mapping to the lane location'''
-        # Create a polygon that with the top/bottom points from the left/right lane
-        poly_pts = [
-                    (int(self.left.fit_pts[0]), img.shape[0]),
-                    (int(self.left.fit_pts[-1:]), 0),
-                    (int(self.right.fit_pts[-1:]), 0),
-                    (int(self.right.fit_pts[0]), img.shape[0])
-                    ]
+        # Recast the x and y points into usable format for cv2.fillPoly()
+        pts_left = np.array([np.transpose(np.vstack([self.left.fit_pts, self.left.y_pts]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([self.right.fit_pts, self.right.y_pts])))])
+        pts = np.hstack((pts_left, pts_right))
+        pts = np.int_([pts])
 
-        # Draw that polygon over the original image
-        img = cv2.fillPoly(img, [np.array(poly_pts)], 255)
-
-        # Convert back to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-
+        # Draw the lane onto the warped blank image in RGB
+        cv2.fillPoly(img, pts, 255)
         return img
 
 
 if __name__ == '__main__':
     lane_lines = LaneLines()
-
     # Test calibration and update calibration data file
     # lane_lines.calibrate(debug = True, read_cal = False)
 

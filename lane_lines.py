@@ -16,8 +16,8 @@ class Line():
     '''Class responsible for retaining lane line information'''
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
-        self.ym_per_pix = 30/720 # meters per pixel in y dimension
-        self.xm_per_pix = 3.7/700 # meters per pixel in x dimension
+        self.ym_per_pix = 30/720 # The distance to the horizon (~30m) minues the img height (720px)
+        self.xm_per_pix = 3.7/1045 # lane width (3.7m) - px difference of left/right lane (see perspective trasnform)
   
         #polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]  
@@ -47,8 +47,8 @@ class Line():
         self.y_pts = None
 
     def update_layer1(self, points, center):
-        '''Update the bottom_x value'''
-        self.bottom_x = np.absolute(center - points[0])
+        '''Update the bottom_x value to be the calculated x at y=0'''
+        self.bottom_x = self.fit_pts[-1]
 
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
@@ -422,7 +422,6 @@ class LaneLines(Pipeline):
             left_fit = self.left.update_fit_pts(img.shape[0], img.shape[1])
             right_fit = self.right.update_fit_pts(img.shape[0], img.shape[1])
 
-
             self.left.update_layer1(left_pts, img_center)
             self.right.update_layer1(right_pts, img_center)
 
@@ -469,9 +468,11 @@ class LaneLines(Pipeline):
         '''Calculate the right offset of the car'''
 
         # pixel distance * pixel conversion. -1 gave a better value during tuning
-        right_offset = (self.right.bottom_x - self.left.bottom_x) * self.left.xm_per_pix
+        right_offset = ((self.right.bottom_x + self.left.bottom_x) / 2 \
+                - img.shape[1] / 2) * self.left.xm_per_pix
         car_txt =  "Car is %0.3f meters right of lane center" %(right_offset)
         return cv2.putText(img, car_txt, (50, 200), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
+
 
     def fill_lanes(self, img):
         '''Fill in a polygon mapping to the lane location'''

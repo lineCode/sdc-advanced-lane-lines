@@ -16,6 +16,7 @@ class Line():
     '''Class responsible for retaining lane line information'''
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
+        # TODO: Calculate this dynamically
         self.ym_per_pix = 30/720 # The distance to the horizon (~30m) minues the img height (720px)
         self.xm_per_pix = 3.7/1045 # lane width (3.7m) - px difference of left/right lane (see perspective trasnform)
   
@@ -120,11 +121,12 @@ class LaneLines(Pipeline):
         # Set the perspective transform points
         # XXX: These were tuned on the test_image and assume all images 
         # XXX: are of the same viewing angle and dimensions (front-facing, 1280x720)
+        # TODO: Calculate this dynamically
         x = 1280
         y = 717
         off = 50
 
-        # TODO: Verify this still works even if the car is not centered in the lane
+        # XXX: Tunable
         br = [1245, 669]
         bl = [200, 675]
         tr = [730, 455]
@@ -206,6 +208,7 @@ class LaneLines(Pipeline):
         return img 
 
     def edge_detection(self, img):
+        '''Take an <img> and return edge detected img. XXX: Tunable'''
         mask = np.zeros(img.shape[:-1])
 
         # Convert to HLS and take interest S values

@@ -17,9 +17,9 @@ from pipeline import Pipeline
 class CarWorld(Pipeline):
     def __init__(self):
         super().__init__()
+        self.calibrate() # Calibration cannot occur until after super init
         self.lanes = lane_lines.LaneLines()
         # self.vehicles = vehicle_detection.VehicleDetection(False, "big")
-        self.calibrate() # Calibration cannot occur until after super init
 
     def process_video(self, input_vid, output_vid, debug=False):
         '''Run an video through the pipeline, allow debug options'''
@@ -32,7 +32,7 @@ class CarWorld(Pipeline):
         output = clip.fl_image(func)
         output.write_videofile(output_vid, audio = False)
 
-    def pipeline(self, img):
+    def pipeline(self, img, debug_all=False):
         '''Run an image through the pipeline
         pipline is an overlay of lane detection and vehicle detection
         '''
@@ -40,7 +40,7 @@ class CarWorld(Pipeline):
         img = self.correct_distortion(img)
 
         # Identify Lanes
-        lanes_img = self.lanes.pipeline(img)
+        lanes_img = self.lanes.pipeline(img, debug_all=debug_all)
         assert lanes_img.shape == img.shape
 
         # Identify Cars
@@ -56,11 +56,12 @@ class CarWorld(Pipeline):
 
 if __name__ == '__main__':
     cw = CarWorld()
+
     # Run test videos through pipeline
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
     cw.process_video(input_vid, output_vid)
-    exit()
+
     # Run test videos through pipeline
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output_debug.mp4")

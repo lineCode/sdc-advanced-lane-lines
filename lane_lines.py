@@ -119,13 +119,13 @@ class LaneLines(Pipeline):
         # XXX: are of the same viewing angle and dimensions (front-facing, 1280x720)
         x = 1280
         y = 717
-        off = 50
+        off = 0
 
         # TODO: Verify this still works even if the car is not centered in the lane
-        br = [1245, 669]
+        br = [1245, 675]
         bl = [200, 675]
-        tr = [730, 455]
-        tl = [569, 460]
+        tr = [735, 460]
+        tl = [568, 460]
 
         dbr = [x - off, y - off]
         dbl = [0 + off, y - off]
@@ -554,7 +554,7 @@ if __name__ == '__main__':
     cv2.imwrite(write_name, transform_straight)
 
     # Test perspective transform
-    undistort_transform_straight = lane_lines.perspective_transform(img_straight)
+    undistort_transform_straight = lane_lines.perspective_transform(lane_lines.correct_distortion(img_straight))
     write_name = os.path.join("results", "undistort_transform_straight.jpg")
     cv2.imwrite(write_name, undistort_transform_straight)
 

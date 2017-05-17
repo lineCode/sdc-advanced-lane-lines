@@ -51,7 +51,10 @@ class Line():
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
         points = [c[idx] for c in centroids]
-        self.points.extendleft(points)
+        # If the current set of points are very different from the past n set of points, toss them
+        # TODO: Improve this so that eventually the system reaches equilibrium if there is a lot of noise
+        if len(self.points) <= 50  or np.absolute(np.average(points) - np.average(self.points)) <= 50:
+            self.points.extendleft(points)
 
     def update_best_fit(self, curve=False):
         '''Update the best fit polynomials based on current points f(y)'''
@@ -240,8 +243,9 @@ class LaneLines(object):
 
         # Display the detected lanes before img is altered in debug mode
         if debug:
-            self.find_lanes_conv(img, debug=True) # This will draw a debug canvas
+            img2 = self.find_lanes_conv(img, debug=True) # This will draw a debug canvas
             plt.show()
+            return img2
 
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
@@ -653,4 +657,4 @@ if __name__ == '__main__':
 
     input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
-  
+

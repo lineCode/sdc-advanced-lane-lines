@@ -120,10 +120,10 @@ class LaneLines(object):
         y = 717
         off = 50
 
-        br = [1044, 669]
+        br = [1104, 669]
         bl = [235, 675]
-        tr = [730, 455]
-        tl = [555, 460]
+        tr = [710, 455]
+        tl = [576, 460]
 
         dbr = [x - off, y - off]
         dbl = [0 + off, y - off]

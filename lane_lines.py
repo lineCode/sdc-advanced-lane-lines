@@ -52,7 +52,6 @@ class Line():
         '''Given a list of centroid points and a lane index, update Line points'''
         points = [c[idx] for c in centroids]
         # If the current set of points are very different from the past n set of points, toss them
-        # TODO: Improve this so that eventually the system reaches equilibrium if there is a lot of noise
         if len(self.points) <= 50  or np.absolute(np.average(points) - np.average(self.points)) <= 50:
             self.points.extendleft(points)
 
@@ -98,7 +97,6 @@ class Line():
 
 
 class LaneLines(object):
-    # TODO: Make this a singleton
     def __init__(self):
          # Set directories
         self.cal_dir = "camera_cal"
@@ -227,37 +225,72 @@ class LaneLines(object):
         clip = VideoFileClip(input_vid)
         func = self.pipeline
         if debug:
+            keys = ['img', 'undistort', 'edge', 'perspective', 'centers', 'fill', 'untransform', 'final']
             func = self.debug_pipeline
         output = clip.fl_image(func)
         output.write_videofile(output_vid, audio = False)
 
     def debug_pipeline(self, img):
         '''Debug wrapper for pipeline'''
-        return self.pipeline(img, debug2=True)
+        print("entering debug pipeline")
+        imgs = self.pipeline(img, debug_all=True)
 
-    def pipeline(self, img, debug=False, debug2=False):
+        # Create a new image big enough to store all the output images
+        shape = imgs['img'].shape[0:2]
+        scale = len(imgs) + 1
+        output = np.zeros((shape[0] * scale, shape[1], 3))
+
+        # Iterate over each image and lay them on top of each other
+        i = 1
+        for img in sorted(imgs.keys()):
+            # If it is grayscale make it RGB
+            if len(imgs[img].shape) == 2:
+                imgs[img] = cv2.cvtColor(imgs[img], cv2.COLOR_GRAY2RGB)
+
+            # Add it to the output and increment the offset, make smaller imgs fit
+            output[i * shape[0]: ( i + 1) * shape[0] - (shape[0] - imgs[img].shape[0]),
+                    0:imgs[img].shape[1],:] = imgs[img]
+            i += 1
+        return output
+
+    def pipeline(self, img, debug=False, debug_all=False, show_centers=False):
         '''run an image through the full pipeline and return a lane-filled image'''
+        if debug_all:
+            imgs = {'img': np.copy(img)}
+
         # undistort and create a copy
         img = self.correct_distortion(img)
         undistort_img = np.copy(img)
+        if debug_all:
+            imgs['undistort'] = np.copy(undistort_img)
 
         # create edge detection mask, and zero out anything not found in mask
         mask = self.edge_detection(img)
         img[mask != 1] = 0
+        if debug_all:
+            imgs['edge'] = np.copy(img)
 
         # create birds eye view
         img = self.perspective_transform(img)
+        if debug_all:
+            imgs['perspective'] = np.copy(img)
 
         # Display the detected lanes before img is altered in debug mode
-        if debug2:
+        if debug_all or show_centers:
             img2 = self.find_lanes_conv(img, debug=True) # This will draw a debug canvas
-            return img2
+            imgs['centers'] = np.copy(img2)
+            if show_centers:
+                return img2
 
         # detect lanes, and get a lane polygon img
         img = self.find_lanes_conv(img)
+        if debug_all:
+            imgs['fill'] = np.copy(img)
 
         # transform lane polygon back to normal view
         img = self.perspective_transform(img, rev = True)
+        if debug_all:
+            imgs['untransform'] = np.copy(img)
 
         # overly lane polygon onto undistorted img
         img = self.overlay_img(undistort_img, img)
@@ -267,12 +300,16 @@ class LaneLines(object):
 
         # Calculate the position of car
         img = self.calculate_car(img)
+        if debug_all:
+            imgs['final'] = np.copy(img)
 
         # Show final lane overlay image
         if debug:
             plt.imshow(img)
             plt.show()
 
+        if debug_all:
+            return imgs
         return img 
 
     def correct_distortion(self, img):
@@ -496,6 +533,9 @@ class LaneLines(object):
         self.left.update_fit_pts(img.shape[0], img.shape[1])
         self.right.update_fit_pts(img.shape[0], img.shape[1])
 
+        # Run sanity checks on lanes
+        self.sanity_check_lanes()
+
         # Call the helper function to draw a block over the original image for each found centroid
         if debug:
             l_points = np.zeros_like(img)
@@ -560,6 +600,12 @@ class LaneLines(object):
         # Draw the lane onto the warped blank image in RGB
         cv2.fillPoly(img, pts, 255)
         return img
+
+    def sanity_check_lanes(self):
+        '''Run a sanity check to verify the newly detected lanes are possible'''
+        # TODO: Verify lane curvature is within a reasonable margin
+        # TODO: Correct a line that is out of suitable range
+        pass
 
 
 if __name__ == '__main__':

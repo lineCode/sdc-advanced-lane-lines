@@ -9,9 +9,11 @@ from collections import deque
 import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip
 
+from pipeline import Pipeline
+import car_helper
 
-# Define a class to receive the characteristics of each line detection
 class Line():
+    '''Class responsible for retaining lane line information'''
     def __init__(self, side, centroids):
         # Constant pixel to meters variables
         self.ym_per_pix = 30/720 # meters per pixel in y dimension
@@ -104,20 +106,13 @@ class Line():
         self.curve = ((1 + (2*poly[0]*y_val*self.ym_per_pix + poly[1])**2)**1.5) / np.absolute(2*poly[0])
 
 
-class LaneLines(object):
+class LaneLines(Pipeline):
     def __init__(self):
-         # Set directories
-        self.cal_dir = "camera_cal"
-        self.results_dir = "results"
+        super().__init__()
 
         # Initialize New Lanes
         self.left = Line('left', 9)
         self.right = Line('right', 9)
-
-        # Set Calibration defaults
-        self.dist_mtx = None
-        self.dist_dist = None
-        self.cal_file = os.path.join(self.results_dir, "calibration_data.p")
 
         # Set the perspective transform points
         # XXX: These were tuned on the test_image and assume all images 
@@ -126,10 +121,11 @@ class LaneLines(object):
         y = 717
         off = 50
 
-        br = [1104, 669]
-        bl = [235, 675]
-        tr = [710, 455]
-        tl = [576, 460]
+        # TODO: Verify this still works even if the car is not centered in the lane
+        br = [1245, 669]
+        bl = [200, 675]
+        tr = [730, 455]
+        tl = [569, 460]
 
         dbr = [x - off, y - off]
         dbl = [0 + off, y - off]
@@ -142,132 +138,18 @@ class LaneLines(object):
         self.trans_M_rev = None
 
         # Calibrate the camera and setup transformqtion matrix
-        self.calibrate()
         self.setup_transform()
-
-    def calibrate(self, x = 9, y = 6, debug = False, read_cal = True):
-        '''Wrapper for calibrate_camera'''
-        # Run calibration with all images in camera_cal/calibration*.jpg)
-        # Read data from calibration_data.p if already calculated, else write it
-        calibration_images = glob.glob(os.path.join(self.cal_dir, 
-                "calibration*.jpg"))
-        self.calibrate_camera(calibration_images, x, y, debug, read_cal)
-
-    def calibrate_camera(self, images, x, y, debug, read_cal):
-        '''Take a list of chessboard calibration images and calibrate params
-        Input must be RGB image files of x by y chessboards.
-        If read_cal is specified, will try to pickle load data instead of calculate.
-        '''
-        # Try to read calibration data in first
-        if read_cal:
-            print("Reading pre-calculated calibration data")
-            try:
-                cal_data = pickle.load(open(self.cal_file, "rb" ))
-                self.dist_mtx = cal_data['dist_mtx']
-                self.dist_dist = cal_data['dist_dist']
-                return
-            except (IOError, KeyError) as e:
-                print("Unable to read calibration data from %s ... \
-                 preceeding to calculate" %(read_cal))
-
-        # Setup variables and do basic checks
-        assert images is not None and len(images) > 0
-        objpoints = []
-        imgpoints = []
-        img_shape = None
-
-        # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
-        objp = np.zeros((y*x,3), np.float32)
-        objp[:,:2] = np.mgrid[0:x, 0:y].T.reshape(-1,2)
-
-        # Iteratere over each image and try to calibrate points on checkerboards
-        for idx, fname in enumerate(images):
-            print("Calibrating against image %d:%s" %(idx, fname))
-            img = cv2.imread(fname)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-            if img_shape is None:
-                img_shape = gray.shape
-
-            ret, corners = cv2.findChessboardCorners(gray, (x, y), None)
-            
-            # If we found corners, update the lists and do some debug
-            if ret == True:
-                objpoints.append(objp)
-                imgpoints.append(corners)
-                if debug:
-                    cv2.drawChessboardCorners(img, (x,y), corners, ret)
-                    write_name = os.path.join(self.results_dir, 
-                            'corners_found' + str(idx) + '.jpg')
-                    cv2.imwrite(write_name, img)
-            else:
-                print("No corners found in image.")
-        print("Finished calibration images ... Running calibration algorithm.")
-
-        # Calibrate distortion matrix based on imaage points
-        ret, self.dist_mtx, self.dist_dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints,
-                img_shape, None, None)
-
-        # Save undistorted images
-        if debug:
-            for idx, fname in enumerate(images):
-                img = cv2.imread(fname)
-                img = self.correct_distortion(img)
-                img = self.perspective_transform(img)
-                write_name = os.path.join(self.results_dir, 
-                            'undistort' + str(idx) + '.jpg')
-                cv2.imwrite(write_name, img)
-
-        # Save data
-        cal_data = {'dist_mtx': self.dist_mtx, 'dist_dist': self.dist_dist}
-        dist_pickle = pickle.dump(cal_data, open(self.cal_file, "wb" ))
 
     def setup_transform(self):
         '''Use the pre-calculated points to save the transformation matrix'''
         self.trans_M = cv2.getPerspectiveTransform(self.trans_src, self.trans_dst)
         self.trans_M_rev = cv2.getPerspectiveTransform(self.trans_dst, self.trans_src)
 
-    def process_video(self, input_vid, output_vid, debug=False):
-        '''Run an video through the pipeline'''
-        print("Running %s through pipeline and outputting to %s" %(input_vid, output_vid))
-        clip = VideoFileClip(input_vid)
-        func = self.pipeline
-        if debug:
-            keys = ['img', 'undistort', 'edge', 'perspective', 'centers', 'fill', 'untransform', 'final']
-            func = self.debug_pipeline
-        output = clip.fl_image(func)
-        output.write_videofile(output_vid, audio = False)
-
-    def debug_pipeline(self, img):
-        '''Debug wrapper for pipeline'''
-        print("entering debug pipeline")
-        imgs = self.pipeline(img, debug_all=True)
-
-        # Create a new image big enough to store all the output images
-        shape = imgs['img'].shape[0:2]
-        scale = len(imgs) + 1
-        output = np.zeros((shape[0] * scale, shape[1], 3))
-
-        # Iterate over each image and lay them on top of each other
-        i = 1
-        for img in sorted(imgs.keys()):
-            # If it is grayscale make it RGB
-            if len(imgs[img].shape) == 2:
-                imgs[img] = cv2.cvtColor(imgs[img], cv2.COLOR_GRAY2RGB)
-
-            # Add it to the output and increment the offset, make smaller imgs fit
-            output[i * shape[0]: ( i + 1) * shape[0] - (shape[0] - imgs[img].shape[0]),
-                    0:imgs[img].shape[1],:] = imgs[img]
-            i += 1
-        return output
-
     def pipeline(self, img, debug=False, debug_all=False, show_centers=False):
-        '''run an image through the full pipeline and return a lane-filled image'''
-        if debug_all:
-            imgs = {'img': np.copy(img)}
-
+        '''run an image through the full pipeline and return a lane-filled image
+        Expects an undistorted image
+        '''
         # undistort and create a copy
-        img = self.correct_distortion(img)
         undistort_img = np.copy(img)
         if debug_all:
             imgs['undistort'] = np.copy(undistort_img)
@@ -301,7 +183,7 @@ class LaneLines(object):
             imgs['untransform'] = np.copy(img)
 
         # overly lane polygon onto undistorted img
-        img = self.overlay_img(undistort_img, img)
+        img = car_helper.overlay_img(undistort_img, img)
 
         # Calculate the curvature
         img = self.calculate_curvature(img)
@@ -319,15 +201,6 @@ class LaneLines(object):
         if debug_all:
             return imgs
         return img 
-
-    def correct_distortion(self, img):
-        '''Given an image, use pre-calculated correction/distortion matrices to undistort the image'''
-        assert self.dist_mtx is not None
-        assert self.dist_dist is not None
-        assert img is not None
-        undistort = cv2.undistort(img, self.dist_mtx, self.dist_dist)
-        assert img.shape == undistort.shape
-        return undistort
 
     def edge_detection(self, img):
         mask = np.zeros(img.shape[:-1])
@@ -390,10 +263,6 @@ class LaneLines(object):
     def location_thresh(self, img, thresh=(0.3, 0.3)):
         '''Cut of the thresh %% top of the image'''
         mask = np.zeros(img.shape[:-1])
-
-        #bottom = img.shape[0]
-        #y = int(bottom * thresh) # y cut-off
-        #mask[y:bottom,:] = 1
 
         #filling pixels inside the polygon defined by "vertices" with the fill color 
         poly_x = img.shape[1]
@@ -503,6 +372,7 @@ class LaneLines(object):
 
         # Iterate over each level after the first, run a convolution, and calculate centroids
         for level in range(0, levels):
+            # TODO: Make this smarter on iterative runs
             # Initialize level top/bottom/center
             y_max = (level + 1) * w_height
             y_min = level * w_height
@@ -570,16 +440,6 @@ class LaneLines(object):
             return img
         return self.fill_lanes(img)
 
-    def overlay_img(self, orig, update):
-        '''Overlay an image over another image'''
-        # If one of the images is gray scale and the other is RGB, convert to RGB
-
-        if len(orig.shape) > len(update.shape):
-            update = cv2.cvtColor(update, cv2.COLOR_GRAY2RGB)
-        elif len(orig.shape) < len(update.shape):
-            orig = cv2.cvtColor(orig, cv2.COLOR_GRAY2RGB)
-        return cv2.addWeighted(orig, 1, update, 0.3, 0)
-
     def calculate_curvature(self, img):
         '''Calculate and overkay the radius of curvature for each lane on the top corner of the image.'''
         y_val = img.shape[0] # XXX: Currently the max, we might want to tune this
@@ -593,7 +453,7 @@ class LaneLines(object):
         '''Calculate the right offset of the car'''
 
         # pixel distance * pixel conversion. -1 gave a better value during tuning
-        right_offset = (self.right.bottom_x - self.left.bottom_x) * self.left.xm_per_pix - 1
+        right_offset = (self.right.bottom_x - self.left.bottom_x) * self.left.xm_per_pix
         car_txt =  "Car is %0.3f meters right of lane center" %(right_offset)
         return cv2.putText(img, car_txt, (50, 200), cv2.FONT_HERSHEY_PLAIN, 1, (0,0,0))
 
@@ -613,6 +473,7 @@ class LaneLines(object):
         '''Run a sanity check to verify the newly detected lanes are possible'''
         # TODO: Verify lane curvature is within a reasonable margin
         # TODO: Correct a line that is out of suitable range
+        # TODO: Verify they are within a reasonable horizontal range of each other
         pass
 
 
@@ -621,8 +482,11 @@ if __name__ == '__main__':
     # Test calibration and update calibration data file
     # lane_lines.calibrate(debug = True, read_cal = False)
 
+    # Make sure calibration data is read in
+    lane_lines.calibrate()
+
     # Read in test image
-    img = cv2.imread(os.path.join("test_img", "test1.jpg"))
+    img = cv2.imread(os.path.join("test_img", "test2.jpg"))
     write_name = os.path.join("results", "test-original.jpg")
     cv2.imwrite(write_name, img)
     
@@ -690,7 +554,7 @@ if __name__ == '__main__':
     cv2.imwrite(write_name, transform_straight)
 
     # Test perspective transform
-    undistort_transform_straight = lane_lines.perspective_transform(undistort_straight)
+    undistort_transform_straight = lane_lines.perspective_transform(img_straight)
     write_name = os.path.join("results", "undistort_transform_straight.jpg")
     cv2.imwrite(write_name, undistort_transform_straight)
 
@@ -710,7 +574,7 @@ if __name__ == '__main__':
     cv2.imwrite(write_name, tranformed_lanes)
 
     # Test curvature detection
-    curve = lane_lines.overlay_img(img, tranformed_lanes)
+    curve = car_helper.overlay_img(img, tranformed_lanes)
     curve_img = lane_lines.calculate_curvature(curve)
     write_name = os.path.join("results", "curves.jpg")
     cv2.imwrite(write_name, curve_img)
@@ -724,22 +588,3 @@ if __name__ == '__main__':
     pipeline = lane_lines.pipeline(img)
     write_name = os.path.join("results", "pipeline.jpg")
     cv2.imwrite(write_name, pipeline)
-
-    # Run test videos through pipeline
-    input_vid = os.path.join("test_vid",'project_video.mp4')
-    output_vid = os.path.join("results", "project_video_output.mp4")
-    lane_lines.process_video(input_vid, output_vid)
-
-    # Run test videos through pipeline
-    input_vid = os.path.join("test_vid",'project_video.mp4')
-    output_vid = os.path.join("results", "project_video_output_debug.mp4")
-    lane_lines.process_video(input_vid, output_vid, debug=True)
-
-    input_vid = os.path.join("test_vid",'challenge_video.mp4')
-    output_vid = os.path.join("results", "challenge_video_output.mp4")
-    lane_lines.process_video(input_vid, output_vid)
-
-    input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
-    output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
-    lane_lines.process_video(input_vid, output_vid)
-  

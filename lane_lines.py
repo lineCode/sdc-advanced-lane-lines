@@ -50,10 +50,18 @@ class Line():
 
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
+        min_pts = 50 # TODO: Tune this more
+        diff_thresh = 50 # TODO: Tune this more
+        rem_pts = 5 # TODO: Tune this more
         points = [c[idx] for c in centroids]
         # If the current set of points are very different from the past n set of points, toss them
-        if len(self.points) <= 50  or np.absolute(np.average(points) - np.average(self.points)) <= 50:
+        if len(self.points) <= min_pts  or np.absolute(np.average(points) - np.average(self.points)) <= diff_thresh:
             self.points.extendleft(points)
+        else:
+            # In order to not get stuck in a situation where noise leads to actual changes being ignored
+            # We will remove some of the older points until the new points are forced in as valid
+            for i in range(0, rem_pts):
+                self.points.pop()
 
     def update_best_fit(self, curve=False):
         '''Update the best fit polynomials based on current points f(y)'''

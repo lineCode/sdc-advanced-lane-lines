@@ -31,7 +31,9 @@ The resources used included:
 - ./test_img (test images)
 - ./test_vid (test videos)
 
-The code is structured into a `Line` class, a `LaneLines` class, and some test code. 
+The code is structured into a `Line` class (lane lines), a `LaneLines` class (lane lines detection), a base `Pipeline` class (base pipeline functionality), a car_helper module (common functionality), a CarWorld class (container for video processing and all pipelines), and  and some test code. 
+
+The test images can be reproduced by running the lane_lines.py module. The output videos can be reproduced by running the car_world.py module.
 
 
 ```python
@@ -55,7 +57,7 @@ Before even beginning the pipeline it was necessary to calibrate for camera dist
 
 This was done using 9x6 chessboards images taken from various angles and built in opencv2 functions to detect chessboard corners and calibrate for distortion.
 
-The images used for calibration can be found in ./camera_cal. The calibration data is saved to ./results/calibration_data.p. The code used to generate the calibration is in the calibrate and calibrate_camera functions of the LaneLines class.
+The images used for calibration can be found in ./camera_cal. The calibration data is saved to ./results/calibration_data.p. The code used to generate the calibration is in the calibrate and calibrate_camera functions of the `Pipeline` base class.
 
 
 ```python
@@ -93,7 +95,7 @@ HTML("""
 
 # Undistort
 
-This step uses the previously calculated camera calibration data to remove distortion from images. The code is located in `LaneLines.correct_distortion`.
+This step uses the previously calculated camera calibration data to remove distortion from images. The code is located in `PipeLine.correct_distortion` and is called in `CarWorld.pipeline`.
 
 
 ```python
@@ -200,7 +202,7 @@ The `LaneLines.perspective_transform` takes an image and switches the viewpoint.
 
 ```python
 HTML("""
-<br><table>
+<br><table> Curved Image
 <tr>
 <td><b>Undistorted</b></td>
 <td><b>Transformed (Edge image)</b></td>
@@ -210,6 +212,19 @@ HTML("""
 <td><img src="results/test-undistort.jpg"></td>
 <td><img src="results/transform.jpg"></td>
 <td><img src="results/undistort_transform.jpg"></td>
+</tr>
+</table>
+
+<br><table> Straight Image
+<tr>
+<td><b>Undistorted</b></td>
+<td><b>Transformed (Edge image)</b></td>
+<td><b>Transformed (Undistorted image)</b></td>
+</tr>
+<tr>
+<td><img src="results/test-straight.jpg"></td>
+<td><img src="results/transform_straight.jpg"></td>
+<td><img src="results/undistort_transform_straight.jpg"></td>
 </tr>
 </table>
 """)
@@ -219,7 +234,7 @@ HTML("""
 
 
 
-<br><table>
+<br><table> Curved Image
 <tr>
 <td><b>Undistorted</b></td>
 <td><b>Transformed (Edge image)</b></td>
@@ -232,11 +247,26 @@ HTML("""
 </tr>
 </table>
 
+<br><table> Straight Image
+<tr>
+<td><b>Undistorted</b></td>
+<td><b>Transformed (Edge image)</b></td>
+<td><b>Transformed (Undistorted image)</b></td>
+</tr>
+<tr>
+<td><img src="results/test-straight.jpg"></td>
+<td><img src="results/transform_straight.jpg"></td>
+<td><img src="results/undistort_transform_straight.jpg"></td>
+</tr>
+</table>
+
 
 
 
 # Detect Lanes
 I used a convolutional technique to identify lane lines. In my `LaneLines.find_lanes_conv` function I define a convolution size and the number of layers to break the image into. I then go (horizontal) layer by layer and run convolutions across each. I do this for the right and left half of the image. The result is a `level` centroids for the left and right lane. I then save these values to the left and right `Line`, call some class functions to calculate a line of best fit/save the points/etc. Future calls to the `find_lanes_conv` function will result in re-use of previously detected centroid points.
+
+Because this is a single test image, the fit may not be the best. In the video output, previous points are taken into account when fitting which results in a more robust lane that is less affected by noise/missing data.
 
 
 ```python
@@ -386,14 +416,20 @@ HTML("""
 
 # Video results
 
+Along with the final output, I have included a debug video that contains the output from each stage in the process.
+
 
 
 ```python
 HTML("""
 <video width="960" height="540" controls>
-  <source src="results/project_video_output.mp4">
+  <source src="results/project_video_output.mp4" type="video/mp4">
+</video>
+<video width="960" height="540" controls>
+  <source src="results/project_video_output_debug.mp4" type="video/mp4">
 </video>
 """.format())
+
 ```
 
 
@@ -401,7 +437,10 @@ HTML("""
 
 
 <video width="960" height="540" controls>
-  <source src="results/project_video_output.mp4">
+  <source src="results/project_video_output.mp4" type="video/mp4">
+</video>
+<video width="960" height="540" controls>
+  <source src="results/project_video_output_debug.mp4" type="video/mp4">
 </video>
 
 

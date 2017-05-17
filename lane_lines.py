@@ -55,7 +55,8 @@ class Line():
         min_pts = 50 # TODO: Tune this more
         diff_thresh = 50 # TODO: Tune this more
         rem_pts = 5 # TODO: Tune this more
-        points = [c[idx] for c in centroids]
+        points = centroids #[c[idx] for c in centroids]
+
         # If the current set of points are very different from the past n set of points, toss them
         if len(self.points) <= min_pts  or np.absolute(np.average(points) - np.average(self.points)) <= diff_thresh:
             self.points.extendleft(points)
@@ -69,7 +70,7 @@ class Line():
 
     def update_best_fit(self, curve=False):
         '''Update the best fit polynomials based on current points f(y)'''
-        # Extract x/y coordinates from (y, x) points and convert from pixels to meters      
+        # Extract x/y coordinates from (y, x) points and convert from pixels to meters
         x = [p[0]  for p in self.points] 
         y = [p[1] for p in self.points] 
 
@@ -345,7 +346,8 @@ class LaneLines(Pipeline):
         img[img != 0] = 1
 
         # Initialize some values
-        w_centroids = []
+        l_centroids = []
+        r_centroids = []
         w = np.ones(w_width)
         y_center = w_height * 0.5
 
@@ -366,7 +368,8 @@ class LaneLines(Pipeline):
         # Add all those centroids to a list
         left_pts = (l_center, y_center)
         right_pts = (r_center, y_center)
-        w_centroids.append((left_pts, right_pts))
+        l_centroids.append((left_pts))
+        r_centroids.append((right_pts))
 
         # Iterate over each level after the first, run a convolution, and calculate centroids
         for level in range(0, levels):
@@ -383,34 +386,43 @@ class LaneLines(Pipeline):
             # Calculate left min, max, and center
             l_min_idx = int(max(l_center + offset - margin, 0))
             l_max_idx = int(min(l_center + offset + margin, img.shape[1]))
-            l_center =  np.argmax(conv_signal[l_min_idx:l_max_idx]) + l_min_idx - offset
+            l_max =  np.argmax(conv_signal[l_min_idx:l_max_idx]) 
+            l_center = l_max + l_min_idx - offset
 
             # Calculate right min, max, and center
             r_min_idx = int(max(r_center + offset - margin, 0))
             r_max_idx = int(min(r_center + offset + margin, img.shape[1]))
-            r_center =  np.argmax(conv_signal[r_min_idx:r_max_idx]) + r_min_idx - offset
+            r_max =  np.argmax(conv_signal[r_min_idx:r_max_idx])
+            r_center = r_max + r_min_idx - offset
 
-            # Upaate centroids list
-            w_centroids.append(((l_center, y_center), (r_center, y_center)))
+            # Upaate centroids list with any found centroids
+            if l_max != 0:
+                l_centroids.append(((l_center, y_center)))
+            if r_max != 0:
+                r_centroids.append(((r_center, y_center)))
 
         # If no centers were found at this point, bail and return the original image 
-        if len(w_centroids) <= 0:
+        if len(l_centroids) and len(r_centroids) <= 0:
             return img
 
         # Update left/right lane to reflect detected points
-        left_points = self.left.update_points(w_centroids, 0)
-        right_points = self.right.update_points(w_centroids, 1)
+        left_points = self.left.update_points(l_centroids, 0)
+        right_points = self.right.update_points(r_centroids, 0)
 
-        # Fit a second order polynomial to right/left lane
-        self.left.update_best_fit()
-        self.right.update_best_fit()
-
-        # calculate f(y) for y = [0,img.shape[0]]
-        left_fit = self.left.update_fit_pts(img.shape[0], img.shape[1])
-        right_fit = self.right.update_fit_pts(img.shape[0], img.shape[1])
+        # Before updating any of the fit lines or fit points run sanity on the last points and all points
+        sanity = self.sanity_check_lanes()
 
         # Update the values used to calculate car position only if the last points good
-        if left_points == 0 and right_points == 0:
+        if left_points == 0 and right_points == 0 and sanity == 0:
+            # Fit a second order polynomial to right/left lane
+            self.left.update_best_fit()
+            self.right.update_best_fit()
+
+            # calculate f(y) for y = [0,img.shape[0]]
+            left_fit = self.left.update_fit_pts(img.shape[0], img.shape[1])
+            right_fit = self.right.update_fit_pts(img.shape[0], img.shape[1])
+
+
             self.left.update_layer1(left_pts, img_center)
             self.right.update_layer1(right_pts, img_center)
 
@@ -422,11 +434,12 @@ class LaneLines(Pipeline):
             l_points = np.zeros_like(img)
             r_points = np.zeros_like(img)
 
-            for level in range(0, len(w_centroids)):
-                l_mask = self.window_mask(w_width, w_height, img, w_centroids[level][0][0], level)
+            for level in range(0, len(l_centroids)):
+                l_mask = self.window_mask(w_width, w_height, img, l_centroids[level][0], level)
                 l_points[l_mask == 1] = 1
 
-                r_mask = self.window_mask(w_width, w_height, img, w_centroids[level][1][0], level)
+            for level in range(0, len(r_centroids)):
+                r_mask = self.window_mask(w_width, w_height, img, r_centroids[level][0], level)
                 r_points[r_mask == 1] = 1
 
             img2 = np.zeros_like(img)
@@ -477,7 +490,7 @@ class LaneLines(Pipeline):
         # TODO: Verify lane curvature is within a reasonable margin
         # TODO: Correct a line that is out of suitable range
         # TODO: Verify they are within a reasonable horizontal range of each other
-        pass
+        return 0
 
 
 if __name__ == '__main__':

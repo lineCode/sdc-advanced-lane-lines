@@ -128,7 +128,7 @@ class Pipeline(object):
         imgs = self.pipeline(img, debug_all=True)
 
         # Create a new image big enough to store all the output images
-        shape = imgs['img'].shape[0:2]
+        shape = imgs['final'].shape[0:2]
         scale = len(imgs) + 1
         output = np.zeros((shape[0] * scale, shape[1], 3))
 

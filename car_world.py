@@ -41,7 +41,8 @@ class CarWorld(Pipeline):
 
         # Identify Lanes
         lanes_img = self.lanes.pipeline(img, debug_all=debug_all)
-        assert lanes_img.shape == img.shape
+        if not debug_all:
+            assert lanes_img.shape == img.shape
 
         # Identify Cars
         # vehicles_img = self.vehicles.pipeline(img)

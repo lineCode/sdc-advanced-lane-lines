@@ -119,13 +119,13 @@ class LaneLines(Pipeline):
         # XXX: are of the same viewing angle and dimensions (front-facing, 1280x720)
         x = 1280
         y = 717
-        off = 0
+        off = 50
 
         # TODO: Verify this still works even if the car is not centered in the lane
-        br = [1245, 675]
+        br = [1245, 669]
         bl = [200, 675]
-        tr = [735, 460]
-        tl = [568, 460]
+        tr = [730, 455]
+        tl = [569, 460]
 
         dbr = [x - off, y - off]
         dbl = [0 + off, y - off]
@@ -152,7 +152,7 @@ class LaneLines(Pipeline):
         # undistort and create a copy
         undistort_img = np.copy(img)
         if debug_all:
-            imgs['undistort'] = np.copy(undistort_img)
+            imgs = {'undistort': np.copy(undistort_img) }
 
         # create edge detection mask, and zero out anything not found in mask
         mask = self.edge_detection(img)
@@ -480,7 +480,7 @@ class LaneLines(Pipeline):
 if __name__ == '__main__':
     lane_lines = LaneLines()
     # Test calibration and update calibration data file
-    # lane_lines.calibrate(debug = True, read_cal = False)
+    lane_lines.calibrate(debug = True, read_cal = False)
 
     # Make sure calibration data is read in
     lane_lines.calibrate()

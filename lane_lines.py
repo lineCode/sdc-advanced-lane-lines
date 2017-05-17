@@ -23,7 +23,7 @@ class Line():
         self.current_fit = [np.array([False])]  
 
         # Distance from bottom pixel to center of image
-        self.bottom_x = None
+        self.bottom_x = 0 # Set this to 0 instead of None, so the first few images return valid numbers
 
         # A fix-sized list of all centroids detected in the line
         self.points = deque(maxlen=100)
@@ -64,6 +64,8 @@ class Line():
             # We will remove some of the older points until the new points are forced in as valid
             for i in range(0, rem_pts):
                 self.points.pop()
+            return -1
+        return 0
 
     def update_best_fit(self, curve=False):
         '''Update the best fit polynomials based on current points f(y)'''
@@ -365,10 +367,6 @@ class LaneLines(Pipeline):
         left_pts = (l_center, y_center)
         right_pts = (r_center, y_center)
         w_centroids.append((left_pts, right_pts))
-        
-        # Update the values used to calculate car position        
-        self.left.update_layer1(left_pts, img_center)
-        self.right.update_layer1(right_pts, img_center)
 
         # Iterate over each level after the first, run a convolution, and calculate centroids
         for level in range(0, levels):
@@ -400,16 +398,21 @@ class LaneLines(Pipeline):
             return img
 
         # Update left/right lane to reflect detected points
-        self.left.update_points(w_centroids, 0)
-        self.right.update_points(w_centroids, 1)
-   
+        left_points = self.left.update_points(w_centroids, 0)
+        right_points = self.right.update_points(w_centroids, 1)
+
         # Fit a second order polynomial to right/left lane
         self.left.update_best_fit()
         self.right.update_best_fit()
 
         # calculate f(y) for y = [0,img.shape[0]]
-        self.left.update_fit_pts(img.shape[0], img.shape[1])
-        self.right.update_fit_pts(img.shape[0], img.shape[1])
+        left_fit = self.left.update_fit_pts(img.shape[0], img.shape[1])
+        right_fit = self.right.update_fit_pts(img.shape[0], img.shape[1])
+
+        # Update the values used to calculate car position only if the last points good
+        if left_points == 0 and right_points == 0:
+            self.left.update_layer1(left_pts, img_center)
+            self.right.update_layer1(right_pts, img_center)
 
         # Run sanity checks on lanes
         self.sanity_check_lanes()

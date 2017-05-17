@@ -221,14 +221,21 @@ class LaneLines(object):
         self.trans_M = cv2.getPerspectiveTransform(self.trans_src, self.trans_dst)
         self.trans_M_rev = cv2.getPerspectiveTransform(self.trans_dst, self.trans_src)
 
-    def process_video(self, input_vid, output_vid):
+    def process_video(self, input_vid, output_vid, debug=False):
         '''Run an video through the pipeline'''
         print("Running %s through pipeline and outputting to %s" %(input_vid, output_vid))
         clip = VideoFileClip(input_vid)
-        output = clip.fl_image(self.pipeline)
+        func = self.pipeline
+        if debug:
+            func = self.debug_pipeline
+        output = clip.fl_image(func)
         output.write_videofile(output_vid, audio = False)
 
-    def pipeline(self, img, debug=False):
+    def debug_pipeline(self, img):
+        '''Debug wrapper for pipeline'''
+        return self.pipeline(img, debug2=True)
+
+    def pipeline(self, img, debug=False, debug2=False):
         '''run an image through the full pipeline and return a lane-filled image'''
         # undistort and create a copy
         img = self.correct_distortion(img)
@@ -242,9 +249,8 @@ class LaneLines(object):
         img = self.perspective_transform(img)
 
         # Display the detected lanes before img is altered in debug mode
-        if debug:
+        if debug2:
             img2 = self.find_lanes_conv(img, debug=True) # This will draw a debug canvas
-            plt.show()
             return img2
 
         # detect lanes, and get a lane polygon img
@@ -669,6 +675,11 @@ if __name__ == '__main__':
     input_vid = os.path.join("test_vid",'project_video.mp4')
     output_vid = os.path.join("results", "project_video_output.mp4")
     lane_lines.process_video(input_vid, output_vid)
+
+    # Run test videos through pipeline
+    input_vid = os.path.join("test_vid",'project_video.mp4')
+    output_vid = os.path.join("results", "project_video_output_debug.mp4")
+    lane_lines.process_video(input_vid, output_vid, debug=True)
 
     input_vid = os.path.join("test_vid",'challenge_video.mp4')
     output_vid = os.path.join("results", "challenge_video_output.mp4")

@@ -5,6 +5,7 @@ import pickle
 import cv2
 from cv2 import undistort
 import numpy as np
+import matplotlib.pyplot as plt
 
 class Pipeline(object):
     '''This is an abstract pipeline class
@@ -41,6 +42,16 @@ class Pipeline(object):
         Input must be RGB image files of x by y chessboards.
         If read_cal is specified, will try to pickle load data instead of calculate.
         '''
+        def undistort_images(debug, images):
+            '''Save undistorted images if debug==true'''
+            if debug:
+                for idx, fname in enumerate(images):
+                    img = cv2.imread(fname)
+                    img = self.correct_distortion(img)
+                    write_name = os.path.join(self.results_dir, 
+                                'undistort' + str(idx) + '.jpg')
+                    cv2.imwrite(write_name, img)
+
         # Try to read calibration data in first
         if read_cal:
             print("Reading pre-calculated calibration data")
@@ -48,6 +59,7 @@ class Pipeline(object):
                 cal_data = pickle.load(open(self.cal_file, "rb" ))
                 self.dist_mtx = cal_data['dist_mtx']
                 self.dist_dist = cal_data['dist_dist']
+                undistort_images(debug, images)
                 return
             except (IOError, KeyError) as e:
                 print("Unable to read calibration data from %s ... \
@@ -68,7 +80,6 @@ class Pipeline(object):
             print("Calibrating against image %d:%s" %(idx, fname))
             img = cv2.imread(fname)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
             if img_shape is None:
                 img_shape = gray.shape
 
@@ -91,15 +102,8 @@ class Pipeline(object):
         ret, self.dist_mtx, self.dist_dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints,
                 img_shape, None, None)
 
-        # Save undistorted images
-        if debug:
-            for idx, fname in enumerate(images):
-                img = cv2.imread(fname)
-                img = self.correct_distortion(img)
-                img = self.perspective_transform(img)
-                write_name = os.path.join(self.results_dir, 
-                            'undistort' + str(idx) + '.jpg')
-                cv2.imwrite(write_name, img)
+        # save images
+        undistort_images(debug, images)
 
         # Save data
         cal_data = {'dist_mtx': self.dist_mtx, 'dist_dist': self.dist_dist}

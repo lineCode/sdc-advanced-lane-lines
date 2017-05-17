@@ -52,9 +52,9 @@ class Line():
 
     def update_points(self, centroids, idx):
         '''Given a list of centroid points and a lane index, update Line points'''
-        min_pts = 50 # TODO: Tune this more
-        diff_thresh = 50 # TODO: Tune this more
-        rem_pts = 5 # TODO: Tune this more
+        min_pts = 50 # XXX: Tunable
+        diff_thresh = 30 # XXX: Tunable
+        rem_pts = 0 # XXX: Tunable
         points = centroids #[c[idx] for c in centroids]
 
         # If the current set of points are very different from the past n set of points, toss them

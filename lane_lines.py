@@ -615,6 +615,25 @@ if __name__ == '__main__':
     write_name = os.path.join("results", "undistort_transform.jpg")
     cv2.imwrite(write_name, undistort_transform)
 
+    # Read in a less interesting image of a straight line to showcase transform
+    img_straight = cv2.imread(os.path.join("test_img", "straight_lines1.jpg"))
+    write_name = os.path.join("results", "test-straight.jpg")
+    cv2.imwrite(write_name, img_straight)
+    undistort_straight = lane_lines.correct_distortion(img_straight)
+    edge_img_straight = np.copy(undistort_straight)
+    edge_mask_straight = lane_lines.edge_detection(undistort_straight)
+    edge_img_straight[edge_mask_straight != 1] = 0
+
+    # Test perspective transform in-step on the straight line image
+    transform_straight = lane_lines.perspective_transform(edge_img_straight)
+    write_name = os.path.join("results", "transform_straight.jpg")
+    cv2.imwrite(write_name, transform_straight)
+
+    # Test perspective transform
+    undistort_transform_straight = lane_lines.perspective_transform(undistort_straight)
+    write_name = os.path.join("results", "undistort_transform_straight.jpg")
+    cv2.imwrite(write_name, undistort_transform_straight)
+
     # Test Lane detection
     lanes_img = lane_lines.find_lanes_conv(transform, debug = True)
     write_name = os.path.join("results", "lanes_lines.jpg")
@@ -657,4 +676,5 @@ if __name__ == '__main__':
 
     input_vid = os.path.join("test_vid",'harder_challenge_video.mp4')
     output_vid = os.path.join("results", "harder_challenge_video_output.mp4")
-
+    lane_lines.process_video(input_vid, output_vid)
+  
